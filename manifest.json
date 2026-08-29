@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Steam Fast Check",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Steamの検索結果を高速化し、タグ・フレンド人気度・Geminiによるゲーム説明翻訳を見やすくします。",
   "permissions": [
     "storage"
@@ -30,6 +30,15 @@
       ],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://store.steampowered.com/search/*"
+      ],
+      "js": [
+        "src/screenshot-interval.js"
+      ],
+      "run_at": "document_start"
     },
     {
       "matches": [

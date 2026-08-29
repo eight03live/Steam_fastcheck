@@ -8,6 +8,16 @@ const scriptPath = path.join(__dirname, "..", "src", "instant-hover.js");
 const extensionScript = fs.readFileSync(scriptPath, "utf8");
 const screenshotCssPath = path.join(__dirname, "..", "src", "fast-screenshots.css");
 const screenshotCss = fs.readFileSync(screenshotCssPath, "utf8");
+const screenshotIntervalScriptPath = path.join(
+  __dirname,
+  "..",
+  "src",
+  "screenshot-interval.js"
+);
+const screenshotIntervalScript = fs.readFileSync(
+  screenshotIntervalScriptPath,
+  "utf8"
+);
 const tagScriptPath = path.join(__dirname, "..", "src", "search-tags.js");
 const tagScript = fs.readFileSync(tagScriptPath, "utf8");
 const tagCssPath = path.join(__dirname, "..", "src", "search-tags.css");
@@ -126,8 +136,11 @@ test("二重読み込み時にラッパーを重ねない", () => {
   assert.equal(window.ShowGameHover, firstShowGameHover);
 });
 
-test("スクリーンショットをフェードなしで0.5秒間隔に切り替える", () => {
-  assert.match(screenshotCss, /animation-duration:\s*2s\s*!important/);
+test("スクリーンショットをフェードなしで設定した間隔に切り替える", () => {
+  assert.match(
+    screenshotCss,
+    /animation-duration:\s*var\(--steam-fast-check-screenshot-cycle,\s*2\.4s\)\s*!important/
+  );
   assert.match(screenshotCss, /animation-timing-function:\s*steps\(1,\s*end\)\s*!important/);
   assert.match(screenshotCss, /#global_hover\s*\{[^}]*transition:\s*none\s*!important/s);
   assert.match(
@@ -135,18 +148,66 @@ test("スクリーンショットをフェードなしで0.5秒間隔に切り�
     /\.screenshot\s*\{[^}]*transition:\s*none\s*!important/s
   );
 
-  for (const [child, delay] of [
+  for (const [child, delayPattern] of [
     [1, "0s"],
-    [2, "0.5s"],
-    [3, "1s"],
-    [4, "1.5s"]
+    [2, "var\\(--steam-fast-check-screenshot-delay-2,\\s*0\\.6s\\)"],
+    [3, "var\\(--steam-fast-check-screenshot-delay-3,\\s*1\\.2s\\)"],
+    [4, "var\\(--steam-fast-check-screenshot-delay-4,\\s*1\\.8s\\)"]
   ]) {
     const rule = new RegExp(
-      `screenshot:nth-child\\(${child}\\)\\s*\\{[^}]*animation-delay:\\s*${delay.replace(".", "\\.")}\\s*!important`,
+      `screenshot:nth-child\\(${child}\\)\\s*\\{[^}]*animation-delay:\\s*${delayPattern}\\s*!important`,
       "s"
     );
     assert.match(screenshotCss, rule);
   }
+});
+
+test("保存した切り替え時間をCSS変数へ反映し、0.1秒刻みに補正する", async () => {
+  const styleValues = new Map();
+  let storageChangeListener;
+  const document = {
+    documentElement: {
+      style: {
+        setProperty(name, value) {
+          styleValues.set(name, value);
+        }
+      }
+    }
+  };
+  const chrome = {
+    storage: {
+      sync: {
+        async get(defaults) {
+          return {
+            ...defaults,
+            steamFastCheckScreenshotIntervalSeconds: 0.8
+          };
+        }
+      },
+      onChanged: {
+        addListener(listener) {
+          storageChangeListener = listener;
+        }
+      }
+    }
+  };
+
+  vm.runInNewContext(screenshotIntervalScript, { chrome, document });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(styleValues.get("--steam-fast-check-screenshot-cycle"), "3.2s");
+  assert.equal(styleValues.get("--steam-fast-check-screenshot-delay-2"), "0.8s");
+  assert.equal(styleValues.get("--steam-fast-check-screenshot-delay-3"), "1.6s");
+  assert.equal(styleValues.get("--steam-fast-check-screenshot-delay-4"), "2.4s");
+
+  storageChangeListener(
+    {
+      steamFastCheckScreenshotIntervalSeconds: { newValue: 0.14 }
+    },
+    "sync"
+  );
+  assert.equal(styleValues.get("--steam-fast-check-screenshot-cycle"), "0.4s");
+  assert.equal(styleValues.get("--steam-fast-check-screenshot-delay-4"), "0.3s");
 });
 
 test("無限スクロールの検索結果へ100件ごとの区切りを追加する", async () => {
@@ -698,7 +759,7 @@ test("フレンド人数別の仮色を明るい4色で定義する", () => {
 
 test("拡張アイコンの設定ポップアップから各設定を保存する", () => {
   assert.equal(manifest.name, "Steam Fast Check");
-  assert.equal(manifest.version, "1.1.0");
+  assert.equal(manifest.version, "1.2.0");
   assert.equal(manifest.action.default_title, "Steam Fast Check 設定");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions, [
@@ -716,6 +777,22 @@ test("拡張アイコンの設定ポップアップから各設定を保存す�
   assert.match(popupScript, /steamFastCheckOpenSearchResultsInNewTab/);
   assert.match(popupHtml, /id="open_in_new_tab"/);
   assert.match(popupHtml, /ゲームを新しいタブで開く/);
+  assert.match(
+    popupHtml,
+    /id="screenshot_interval"[\s\S]*?type="range"[\s\S]*?min="0\.1"[\s\S]*?max="1"[\s\S]*?step="0\.1"/
+  );
+  assert.doesNotMatch(popupHtml, /1枚を表示する時間です/);
+  assert.match(popupScript, /steamFastCheckScreenshotIntervalSeconds/);
+  assert.match(popupScript, /updateScreenshotIntervalImmediately/);
+  assert.match(
+    popupScript,
+    /screenshotIntervalInput\.addEventListener\("input", updateScreenshotIntervalImmediately\)/
+  );
+  const screenshotIntervalContentScript = manifest.content_scripts.find((entry) =>
+    entry.js?.includes("src/screenshot-interval.js")
+  );
+  assert.ok(screenshotIntervalContentScript);
+  assert.equal(screenshotIntervalContentScript.run_at, "document_start");
   assert.match(popupHtml, /id="popular_highlight_enabled"/);
   assert.match(popupHtml, /人気のゲームをハイライト/);
   assert.match(popupHtml, /id="popular_settings_panel"/);

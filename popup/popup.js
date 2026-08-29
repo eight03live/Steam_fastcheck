@@ -2,6 +2,7 @@
 
 const STORAGE_KEY = "steamFastCheckTagHighlightRules";
 const OPEN_IN_NEW_TAB_STORAGE_KEY = "steamFastCheckOpenSearchResultsInNewTab";
+const SCREENSHOT_INTERVAL_STORAGE_KEY = "steamFastCheckScreenshotIntervalSeconds";
 const POPULAR_ENABLED_STORAGE_KEY = "steamFastCheckPopularHighlightEnabled";
 const POPULAR_YEAR_STORAGE_KEY = "steamFastCheckPopularHighlightYear";
 const POPULAR_MONTH_STORAGE_KEY = "steamFastCheckPopularHighlightMonth";
@@ -25,6 +26,10 @@ const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const currentDate = new Date();
 const DEFAULT_POPULAR_YEAR = currentDate.getFullYear();
 const DEFAULT_POPULAR_MONTH = currentDate.getMonth() + 1;
+const MIN_SCREENSHOT_INTERVAL = 0.1;
+const MAX_SCREENSHOT_INTERVAL = 1;
+const SCREENSHOT_INTERVAL_STEP = 0.1;
+const DEFAULT_SCREENSHOT_INTERVAL = 0.6;
 
 const rulesContainer = document.getElementById("rules");
 const ruleTemplate = document.getElementById("rule_template");
@@ -32,6 +37,13 @@ const addButton = document.getElementById("add_rule");
 const saveButton = document.getElementById("save");
 const statusElement = document.getElementById("status");
 const openInNewTabInput = document.getElementById("open_in_new_tab");
+const screenshotIntervalInput = document.getElementById("screenshot_interval");
+const screenshotIntervalValueElement = document.getElementById(
+  "screenshot_interval_value"
+);
+const screenshotIntervalStatusElement = document.getElementById(
+  "screenshot_interval_status"
+);
 const comingSoonPageButton = document.getElementById("comingsoon_page");
 const popularEnabledInput = document.getElementById("popular_highlight_enabled");
 const popularYearInput = document.getElementById("popular_highlight_year");
@@ -59,10 +71,79 @@ let savedPopularEnabled = false;
 let savedPopularYear = DEFAULT_POPULAR_YEAR;
 let savedPopularMonth = DEFAULT_POPULAR_MONTH;
 let popularDataStatus = null;
+let savedScreenshotInterval = DEFAULT_SCREENSHOT_INTERVAL;
+let pendingScreenshotInterval = null;
+let screenshotIntervalSaving = false;
 
 function normalizeColor(value) {
   const color = value.trim().toLowerCase();
   return HEX_COLOR_PATTERN.test(color) ? color : null;
+}
+
+function normalizeScreenshotInterval(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_SCREENSHOT_INTERVAL;
+  }
+
+  const snappedValue =
+    Math.round(numericValue / SCREENSHOT_INTERVAL_STEP) * SCREENSHOT_INTERVAL_STEP;
+  return Number(
+    Math.min(
+      MAX_SCREENSHOT_INTERVAL,
+      Math.max(MIN_SCREENSHOT_INTERVAL, snappedValue)
+    ).toFixed(1)
+  );
+}
+
+function displayScreenshotInterval(value) {
+  const interval = normalizeScreenshotInterval(value);
+  screenshotIntervalInput.value = String(interval);
+  screenshotIntervalValueElement.textContent = `${interval.toFixed(1)}秒`;
+  return interval;
+}
+
+function showScreenshotIntervalStatus(message, isError = false) {
+  screenshotIntervalStatusElement.textContent = message;
+  screenshotIntervalStatusElement.classList.toggle("error", isError);
+}
+
+async function flushScreenshotIntervalSave() {
+  if (screenshotIntervalSaving) {
+    return;
+  }
+
+  screenshotIntervalSaving = true;
+  while (pendingScreenshotInterval !== null) {
+    const interval = pendingScreenshotInterval;
+    pendingScreenshotInterval = null;
+    try {
+      await chrome.storage.sync.set({
+        [SCREENSHOT_INTERVAL_STORAGE_KEY]: interval
+      });
+      savedScreenshotInterval = interval;
+      if (pendingScreenshotInterval === null) {
+        showScreenshotIntervalStatus("保存済み");
+      }
+    } catch (error) {
+      if (pendingScreenshotInterval === null) {
+        displayScreenshotInterval(savedScreenshotInterval);
+        showScreenshotIntervalStatus(
+          error.message || "保存できませんでした。",
+          true
+        );
+      }
+    }
+  }
+  screenshotIntervalSaving = false;
+}
+
+function updateScreenshotIntervalImmediately() {
+  pendingScreenshotInterval = displayScreenshotInterval(
+    screenshotIntervalInput.value
+  );
+  showScreenshotIntervalStatus("保存中…");
+  void flushScreenshotIntervalSave();
 }
 
 function showStatus(message, isError = false) {
@@ -563,6 +644,7 @@ async function loadSettings() {
       chrome.storage.sync.get({
         [STORAGE_KEY]: [],
         [OPEN_IN_NEW_TAB_STORAGE_KEY]: true,
+        [SCREENSHOT_INTERVAL_STORAGE_KEY]: DEFAULT_SCREENSHOT_INTERVAL,
         [POPULAR_ENABLED_STORAGE_KEY]: false,
         [POPULAR_YEAR_STORAGE_KEY]: DEFAULT_POPULAR_YEAR,
         [POPULAR_MONTH_STORAGE_KEY]: DEFAULT_POPULAR_MONTH,
@@ -576,6 +658,9 @@ async function loadSettings() {
     ]);
     const rules = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
     openInNewTabInput.checked = stored[OPEN_IN_NEW_TAB_STORAGE_KEY] !== false;
+    savedScreenshotInterval = displayScreenshotInterval(
+      stored[SCREENSHOT_INTERVAL_STORAGE_KEY]
+    );
     popularEnabledInput.checked = stored[POPULAR_ENABLED_STORAGE_KEY] === true;
     savedPopularEnabled = popularEnabledInput.checked;
     savedPopularYear = Number(stored[POPULAR_YEAR_STORAGE_KEY]);
@@ -598,6 +683,9 @@ async function loadSettings() {
     }
   } catch {
     openInNewTabInput.checked = true;
+    savedScreenshotInterval = displayScreenshotInterval(
+      DEFAULT_SCREENSHOT_INTERVAL
+    );
     popularEnabledInput.checked = false;
     savedPopularEnabled = false;
     savedPopularYear = DEFAULT_POPULAR_YEAR;
@@ -615,6 +703,7 @@ async function loadSettings() {
 }
 
 addButton.addEventListener("click", () => addRuleRow());
+screenshotIntervalInput.addEventListener("input", updateScreenshotIntervalImmediately);
 refreshModelsButton.addEventListener("click", () => refreshGeminiModels());
 testGeminiButton.addEventListener("click", testGeminiConnection);
 clearTranslationCacheButton.addEventListener("click", clearTranslationCache);
