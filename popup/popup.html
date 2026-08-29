@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Steam Fast Check 設定</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header>
+      <h1>Steam Fast Check 設定</h1>
+      <p>検索結果の開き方、ゲーム説明の翻訳、タグ強調を設定します。</p>
+    </header>
+
+    <main>
+      <button id="comingsoon_page" class="page_link_button" type="button">近日登場チェック用ページ</button>
+
+      <section class="behavior_setting" aria-labelledby="link_setting_title">
+        <div class="setting_copy">
+          <h2 id="link_setting_title">ゲームを新しいタブで開く</h2>
+          <p>オンにすると、元の検索位置を保ったまま詳細を開きます。</p>
+        </div>
+        <label class="toggle_switch">
+          <input id="open_in_new_tab" class="toggle_input" type="checkbox" aria-label="ゲームを新しいタブで開く">
+          <span class="toggle_control" aria-hidden="true"></span>
+        </label>
+      </section>
+
+      <section class="behavior_setting gemini_toggle_setting" aria-labelledby="translation_setting_title">
+        <div class="setting_copy">
+          <h2 id="translation_setting_title">ゲーム説明をGeminiで翻訳</h2>
+          <p>英語だけの短い説明と「About This Game」を日本語にします。</p>
+        </div>
+        <label class="toggle_switch">
+          <input id="gemini_translation_enabled" class="toggle_input" type="checkbox" aria-label="Gemini翻訳を有効にする" disabled>
+          <span class="toggle_control" aria-hidden="true"></span>
+        </label>
+      </section>
+
+      <details id="gemini_settings_panel" class="translation_settings_panel">
+        <summary>
+          <span>Gemini API設定</span>
+        </summary>
+
+        <section class="translation_setting" aria-label="Gemini APIの詳細設定">
+          <label class="field_label" for="gemini_api_key">Gemini APIキー</label>
+          <input id="gemini_api_key" class="wide_input" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+          <p class="field_help">この端末の拡張機能内だけに保存します。説明文は翻訳のためGoogle Gemini APIへ送信され、契約状況により料金が発生する場合があります。</p>
+
+          <div class="model_label_row">
+            <label class="field_label" for="gemini_model">Geminiモデル</label>
+            <button id="refresh_models" class="text_button" type="button">モデル一覧を更新</button>
+          </div>
+          <select id="gemini_model" class="wide_input"></select>
+          <p class="field_help">APIから、現在このキーで利用できるテキスト生成モデルを取得します。</p>
+
+          <div class="translation_actions">
+            <button id="test_gemini" class="secondary_button compact_button" type="button">接続テスト</button>
+            <button id="clear_translation_cache" class="secondary_button compact_button" type="button">翻訳キャッシュを消去</button>
+          </div>
+          <p id="translation_status" class="inline_status" role="status" aria-live="polite"></p>
+          <div class="translation_save_row">
+            <button id="save_gemini_settings" class="primary_button" type="button">API設定を保存</button>
+          </div>
+        </section>
+      </details>
+
+      <h2 class="section_title">タグ強調</h2>
+      <p class="section_description">完全一致するユーザータグを、検索行とホバー詳細の両方で強調します。</p>
+      <div class="column_labels" aria-hidden="true">
+        <span>タグ名</span>
+        <span>色</span>
+      </div>
+      <div id="rules" class="rules"></div>
+
+      <button id="add_rule" class="secondary_button" type="button">＋ タグを追加</button>
+
+      <div class="footer">
+        <span id="status" class="status" role="status" aria-live="polite"></span>
+        <button id="save" class="primary_button" type="button">保存</button>
+      </div>
+    </main>
+
+    <template id="rule_template">
+      <div class="rule_row">
+        <span class="drag_handle" draggable="true" role="button" tabindex="0" aria-label="ドラッグしてタグの順序を変更" title="ドラッグして順序を変更">⠿</span>
+        <input class="tag_input" type="text" maxlength="80" placeholder="例: ホラー" aria-label="タグ名">
+        <input class="color_input" type="color" value="#ffd166" aria-label="強調色">
+        <input class="hex_input" type="text" maxlength="7" value="#ffd166" spellcheck="false" aria-label="16進数カラー">
+        <button class="remove_button" type="button" aria-label="このタグを削除">×</button>
+      </div>
+    </template>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

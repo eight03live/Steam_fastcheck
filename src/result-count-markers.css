@@ -1,0 +1,30 @@
+#search_resultsRows > .steam_fast_check_count_marker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  margin: 8px 0;
+  color: #d7efff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+
+#search_resultsRows > .steam_fast_check_count_marker::before,
+#search_resultsRows > .steam_fast_check_count_marker::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(103, 193, 245, 0.08),
+    rgba(215, 239, 255, 0.82)
+  );
+}
+
+#search_resultsRows > .steam_fast_check_count_marker::after {
+  transform: scaleX(-1);
+}

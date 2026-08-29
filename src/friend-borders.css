@@ -1,0 +1,31 @@
+:root {
+  --steam-fast-check-friend-1: #c9efff;
+  --steam-fast-check-friend-2: #fff1a8;
+  --steam-fast-check-friend-3: #ffb8b8;
+  --steam-fast-check-friend-4plus: #e3bdff;
+}
+
+.search_result_row.steam_fast_check_friend_wishlist_1,
+.search_result_row.steam_fast_check_friend_wishlist_2,
+.search_result_row.steam_fast_check_friend_wishlist_3,
+.search_result_row.steam_fast_check_friend_wishlist_4plus {
+  box-sizing: border-box;
+  border-style: solid !important;
+  border-width: 2px !important;
+}
+
+.search_result_row.steam_fast_check_friend_wishlist_1 {
+  border-color: var(--steam-fast-check-friend-1) !important;
+}
+
+.search_result_row.steam_fast_check_friend_wishlist_2 {
+  border-color: var(--steam-fast-check-friend-2) !important;
+}
+
+.search_result_row.steam_fast_check_friend_wishlist_3 {
+  border-color: var(--steam-fast-check-friend-3) !important;
+}
+
+.search_result_row.steam_fast_check_friend_wishlist_4plus {
+  border-color: var(--steam-fast-check-friend-4plus) !important;
+}

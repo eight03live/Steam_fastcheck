@@ -1,0 +1,42 @@
+.search_platforms.steam_fast_check_tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.search_platforms.steam_fast_check_tags .steam_fast_check_tag {
+  display: inline-block;
+  max-width: 86px;
+  padding: 1px 5px;
+  overflow: hidden;
+  color: #67c1f5;
+  font-size: 11px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(103, 193, 245, 0.12);
+  border-radius: 2px;
+}
+
+.search_platforms.steam_fast_check_tags .steam_fast_check_tag_more {
+  flex: 0 0 auto;
+  color: #8f98a0;
+  background: rgba(143, 152, 160, 0.12);
+}
+
+.search_platforms.steam_fast_check_tags .steam_fast_check_tag.steam_fast_check_tag_highlight,
+#global_hover .hover_tag_row .app_tag.steam_fast_check_tag_highlight {
+  color: var(--steam-fast-check-tag-highlight-text) !important;
+  font-weight: 700 !important;
+  background: var(--steam-fast-check-tag-highlight-color) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.72),
+    0 0 8px var(--steam-fast-check-tag-highlight-color);
+}
+
+#global_hover .hover_tag_row .app_tag.steam_fast_check_tag_highlight {
+  border-radius: 2px;
+}

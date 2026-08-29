@@ -1,0 +1,44 @@
+#steam_fast_check_translation_status {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  max-width: min(430px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid rgba(103, 193, 245, 0.7);
+  border-radius: 4px;
+  background: rgba(17, 28, 40, 0.96);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  color: #d6e9f8;
+  font-family: Arial, "Yu Gothic UI", "Meiryo", sans-serif;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+#steam_fast_check_translation_status[data-state="success"] {
+  border-color: rgba(164, 208, 7, 0.72);
+  color: #d7f18a;
+}
+
+#steam_fast_check_translation_status[data-state="error"] {
+  border-color: rgba(255, 126, 126, 0.8);
+  color: #ffd0d0;
+}
+
+#steam_fast_check_translation_status[hidden] {
+  display: none !important;
+}
+
+.steam_fast_check_translated_parent {
+  cursor: text;
+}
+
+.steam_fast_check_translated_parent:hover {
+  background-color: rgba(103, 193, 245, 0.07);
+}
+
+.steam_fast_check_translated_parent.steam_fast_check_original_visible {
+  background-color: rgba(103, 193, 245, 0.11);
+}

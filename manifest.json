@@ -1,0 +1,83 @@
+{
+  "manifest_version": 3,
+  "name": "Steam Fast Check",
+  "version": "1.0.0",
+  "description": "Steamの検索結果を高速化し、タグ・フレンド人気度・Geminiによるゲーム説明翻訳を見やすくします。",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background/gemini-translation.js"
+  },
+  "action": {
+    "default_title": "Steam Fast Check 設定",
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://store.steampowered.com/search/*"
+      ],
+      "js": [
+        "src/instant-hover.js"
+      ],
+      "css": [
+        "src/fast-screenshots.css"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://store.steampowered.com/search/*"
+      ],
+      "js": [
+        "src/search-tags.js"
+      ],
+      "css": [
+        "src/search-tags.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://store.steampowered.com/search/*"
+      ],
+      "js": [
+        "src/friend-borders.js"
+      ],
+      "css": [
+        "src/friend-borders.css"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://store.steampowered.com/search/*"
+      ],
+      "js": [
+        "src/result-count-markers.js"
+      ],
+      "css": [
+        "src/result-count-markers.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://store.steampowered.com/app/*"
+      ],
+      "js": [
+        "src/gemini-translation.js"
+      ],
+      "css": [
+        "src/gemini-translation.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
