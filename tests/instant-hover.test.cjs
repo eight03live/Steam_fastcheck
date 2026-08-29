@@ -10,6 +10,8 @@ const screenshotCssPath = path.join(__dirname, "..", "src", "fast-screenshots.cs
 const screenshotCss = fs.readFileSync(screenshotCssPath, "utf8");
 const tagScriptPath = path.join(__dirname, "..", "src", "search-tags.js");
 const tagScript = fs.readFileSync(tagScriptPath, "utf8");
+const tagCssPath = path.join(__dirname, "..", "src", "search-tags.css");
+const tagCss = fs.readFileSync(tagCssPath, "utf8");
 const friendScriptPath = path.join(__dirname, "..", "src", "friend-borders.js");
 const friendScript = fs.readFileSync(friendScriptPath, "utf8");
 const friendCssPath = path.join(__dirname, "..", "src", "friend-borders.css");
@@ -28,6 +30,20 @@ const countMarkerCssPath = path.join(
   "result-count-markers.css"
 );
 const countMarkerCss = fs.readFileSync(countMarkerCssPath, "utf8");
+const popularHighlightScriptPath = path.join(
+  __dirname,
+  "..",
+  "src",
+  "popular-game-highlights.js"
+);
+const popularHighlightScript = fs.readFileSync(popularHighlightScriptPath, "utf8");
+const steamDbSourceScriptPath = path.join(
+  __dirname,
+  "..",
+  "src",
+  "steamdb-popular-source.js"
+);
+const steamDbSourceScript = fs.readFileSync(steamDbSourceScriptPath, "utf8");
 const manifestPath = path.join(__dirname, "..", "manifest.json");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const popupScriptPath = path.join(__dirname, "..", "popup", "popup.js");
@@ -320,12 +336,15 @@ test("指定タグを検索行で優先表示し、ホバータグも同じ色�
     }
   }
 
-  const makeRow = (tagIds) => {
+  const makeRow = (tagIds, popularRank = null) => {
     const platformArea = new FakeElement();
     platformArea.children.push({ className: "platform_img win" });
 
     return {
       nodeType: 1,
+      dataset: popularRank
+        ? { steamFastCheckPopularRank: String(popularRank) }
+        : {},
       platformArea,
       getAttribute(name) {
         return name === "data-ds-tagids" ? JSON.stringify(tagIds) : null;
@@ -351,7 +370,7 @@ test("指定タグを検索行で優先表示し、ホバータグも同じ色�
     ["3871", "2D"],
     ["5350", "家族向け"]
   ].map(([value, loc]) => ({ dataset: { value, loc } }));
-  const initialRow = makeRow([122, 3799, 3871, 5350]);
+  const initialRow = makeRow([122, 3799, 3871, 5350], 4);
   const observerCallbacks = [];
   const documentListeners = new Map();
   let storageChangeListener;
@@ -388,6 +407,7 @@ test("指定タグを検索行で優先表示し、ホバータグも同じ色�
         get: async () => ({
           steamFastCheckTagHighlightRules: [
             { tag: "家族向け", color: "#ffd166" },
+            { tag: "TOP100", color: "#ff7a7a" },
             { tag: "2D", color: "#88ccff" }
           ],
           steamFastCheckOpenSearchResultsInNewTab: true
@@ -411,9 +431,16 @@ test("指定タグを検索行で優先表示し、ホバータグも同じ色�
 
   assert.deepEqual(
     initialRow.platformArea.children.map((child) => child.textContent),
-    ["家族向け", "2D", "RPG", "+1"]
+    ["家族向け", "TOP100", "2D", "+2"]
   );
-  assert.equal(initialRow.platformArea.title, "RPG / ビジュアルノベル / 2D / 家族向け");
+  assert.equal(
+    initialRow.platformArea.title,
+    "TOP100（SteamDBフォロワー第4位） / RPG / ビジュアルノベル / 2D / 家族向け"
+  );
+  assert.equal(
+    initialRow.platformArea.children[1].className,
+    "steam_fast_check_tag steam_fast_check_popular_tag"
+  );
   assert.ok(initialRow.platformArea.classList.contains("steam_fast_check_tags"));
   assert.equal(initialRow.target, "_blank");
   assert.equal(initialRow.rel, "noopener noreferrer");
@@ -427,6 +454,41 @@ test("指定タグを検索行で優先表示し、ホバータグも同じ色�
       "--steam-fast-check-tag-highlight-color"
     ),
     "#ffd166"
+  );
+  assert.ok(
+    initialRow.platformArea.children[1].classList.contains(
+      "steam_fast_check_tag_highlight"
+    )
+  );
+  assert.equal(
+    initialRow.platformArea.children[1].styleValues.get(
+      "--steam-fast-check-tag-highlight-color"
+    ),
+    "#ff7a7a"
+  );
+
+  storageChangeListener(
+    {
+      steamFastCheckTagHighlightRules: {
+        newValue: [
+          { tag: "家族向け", color: "#ffd166" },
+          { tag: "2D", color: "#88ccff" },
+          { tag: "RPG", color: "#99dd88" },
+          { tag: "TOP100", color: "#ff7a7a" }
+        ]
+      }
+    },
+    "sync"
+  );
+  assert.deepEqual(
+    initialRow.platformArea.children.map((child) => child.textContent),
+    ["家族向け", "2D", "TOP100", "+2"]
+  );
+  assert.equal(
+    initialRow.platformArea.children[2].styleValues.get(
+      "--steam-fast-check-tag-highlight-color"
+    ),
+    "#ff7a7a"
   );
 
   const appendedRow = makeRow([3871, 122]);
@@ -500,11 +562,24 @@ test("指定タグを検索行で優先表示し、ホバータグも同じ色�
     "sync"
   );
   assert.equal(
-    initialRow.platformArea.children[0].styleValues.get(
+    initialRow.platformArea.children[1].styleValues.get(
       "--steam-fast-check-tag-highlight-color"
     ),
     "#88ccff"
   );
+  assert.deepEqual(
+    initialRow.platformArea.children.map((child) => child.textContent),
+    ["TOP100", "家族向け", "RPG", "+2"]
+  );
+
+  delete initialRow.dataset.steamFastCheckPopularRank;
+  documentListeners.get("steam-fast-check-popular-tags-changed:undefined")();
+  assert.deepEqual(
+    initialRow.platformArea.children.map((child) => child.textContent),
+    ["家族向け", "RPG", "ビジュアルノベル", "+1"]
+  );
+  assert.match(tagCss, /\.steam_fast_check_popular_tag/);
+  assert.match(tagCss, /background:\s*#f3c243/);
 });
 
 test("フレンド人数を4段階の枠クラスへ変換する", async () => {
@@ -623,11 +698,12 @@ test("フレンド人数別の仮色を明るい4色で定義する", () => {
 
 test("拡張アイコンの設定ポップアップから各設定を保存する", () => {
   assert.equal(manifest.name, "Steam Fast Check");
-  assert.equal(manifest.version, "1.0.0");
+  assert.equal(manifest.version, "1.1.0");
   assert.equal(manifest.action.default_title, "Steam Fast Check 設定");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions, [
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "https://steamdb.info/*"
   ]);
   assert.equal(
     manifest.background.service_worker,
@@ -640,10 +716,26 @@ test("拡張アイコンの設定ポップアップから各設定を保存す�
   assert.match(popupScript, /steamFastCheckOpenSearchResultsInNewTab/);
   assert.match(popupHtml, /id="open_in_new_tab"/);
   assert.match(popupHtml, /ゲームを新しいタブで開く/);
+  assert.match(popupHtml, /id="popular_highlight_enabled"/);
+  assert.match(popupHtml, /人気のゲームをハイライト/);
+  assert.match(popupHtml, /id="popular_settings_panel"/);
+  assert.match(popupHtml, /id="popular_highlight_year"/);
+  assert.match(popupHtml, /id="popular_highlight_month"/);
+  assert.match(popupHtml, /id="popular_settings_summary_status"/);
+  assert.match(popupScript, /updatePopularSettingsSummary/);
+  assert.match(popupScript, /件取得済み/);
+  assert.match(popupHtml, /id="save_popular_settings"/);
+  assert.match(popupHtml, /対象年月を保存/);
+  assert.match(popupHtml, /id="open_steamdb_page"/);
+  assert.match(popupScript, /steamFastCheckPopularHighlightEnabled/);
+  assert.match(popupScript, /steamFastCheckPopularHighlightYear/);
+  assert.match(popupScript, /steamFastCheckPopularHighlightMonth/);
+  assert.match(popupScript, /sort", "followers_desc"/);
   assert.match(popupHtml, /id="comingsoon_page"/);
   assert.match(popupHtml, /近日登場チェック用ページ/);
   assert.doesNotMatch(popupHtml, /move_up_button|move_down_button/);
   assert.match(popupHtml, /class="drag_handle" draggable="true"/);
+  assert.match(popupHtml, /TOP100を追加すると、専用タグの色と表示順も設定できます/);
   assert.match(popupScript, /moveRuleRow/);
   assert.match(popupScript, /insertBefore/);
   assert.match(popupScript, /dragstart/);
@@ -672,12 +764,339 @@ test("拡張アイコンの設定ポップアップから各設定を保存す�
   assert.match(popupScript, /steamFastCheckGeminiSettingsRevision/);
   assert.match(popupScript, /saveGeminiSettings/);
   assert.match(popupScript, /saveGeneralSettings/);
+  assert.match(popupScript, /savePopularSettings/);
+  assert.match(popupScript, /updatePopularEnabledImmediately/);
+  assert.match(
+    popupScript,
+    /popularEnabledInput\.addEventListener\("change", updatePopularEnabledImmediately\)/
+  );
   assert.match(popupScript, /geminiSettingsPanel\.open/);
   assert.match(popupScript, /updateGeminiEnabledImmediately/);
   assert.match(
     popupScript,
     /geminiEnabledInput\.addEventListener\("change", updateGeminiEnabledImmediately\)/
   );
+});
+
+test("通常タブで表示したSteamDBのフォロワー上位100件を保存して返す", async () => {
+  const localValues = {};
+  const syncValues = {};
+  const createdTabs = [];
+  const removedTabs = [];
+  const updatedTabs = [];
+  let messageListener;
+
+  const chrome = {
+    storage: {
+      local: {
+        async setAccessLevel() {},
+        async get(defaults) {
+          return { ...defaults, ...localValues };
+        },
+        async set(values) {
+          Object.assign(localValues, values);
+        },
+        async remove(key) {
+          delete localValues[key];
+        }
+      },
+      sync: {
+        async get(defaults) {
+          return { ...defaults, ...syncValues };
+        },
+        async set(values) {
+          Object.assign(syncValues, values);
+        }
+      }
+    },
+    tabs: {
+      async create(options) {
+        createdTabs.push(options);
+        return { id: 77, ...options };
+      },
+      async remove(tabId) {
+        removedTabs.push(tabId);
+      },
+      async update(tabId, options) {
+        updatedTabs.push({ tabId, options });
+      },
+      onRemoved: {
+        addListener() {}
+      }
+    },
+    runtime: {
+      onMessage: {
+        addListener(listener) {
+          messageListener = listener;
+        }
+      }
+    }
+  };
+
+  vm.runInNewContext(geminiBackgroundScript, {
+    URL,
+    chrome,
+    encodeURIComponent,
+    fetch: async () => {
+      throw new Error("SteamDBはバックグラウンドfetchを使わない");
+    }
+  });
+
+  const sourceUrl =
+    "https://steamdb.info/stats/gameratings/2026/?displayOnly=Game&max_release=2026-09-30&min_release=2026-09-01&sort=followers_desc";
+  const sendMessage = (message, sender = {}) => new Promise((resolve) => {
+    assert.equal(messageListener(message, sender, resolve), true);
+  });
+
+  const pending = await sendMessage({
+    type: "steam-fast-check-steamdb-top-games",
+    year: 2026,
+    month: 9,
+    refresh: true
+  });
+  assert.equal(pending.ok, true);
+  assert.equal(pending.pending, true);
+  assert.equal(pending.refreshing, true);
+  assert.equal(createdTabs.length, 1);
+  assert.equal(createdTabs[0].active, false);
+  assert.equal(createdTabs[0].url, sourceUrl);
+  assert.equal(
+    localValues.steamFastCheckSteamDbPopularStatusV1.ok,
+    null
+  );
+
+  const browserCheck = await sendMessage({
+    type: "steam-fast-check-steamdb-source-status",
+    year: 2026,
+    month: 9,
+    code: "steamdb-browser-check"
+  }, { url: sourceUrl, tab: { id: 77 } });
+  assert.equal(browserCheck.ok, false);
+  assert.equal(browserCheck.code, "steamdb-browser-check");
+  assert.equal(updatedTabs.length, 1);
+  assert.equal(updatedTabs[0].tabId, 77);
+  assert.equal(updatedTabs[0].options.active, true);
+
+  const appIds = Array.from({ length: 105 }, (_, index) => String(5000000 + index));
+  const ingested = await sendMessage({
+    type: "steam-fast-check-steamdb-ingest-games",
+    year: 2026,
+    month: 9,
+    sourceUrl,
+    appIds
+  }, { url: sourceUrl, tab: { id: 77 } });
+  assert.equal(ingested.ok, true);
+  assert.equal(ingested.apps.length, 100);
+  assert.equal(ingested.apps[0].appId, "5000000");
+  assert.equal(ingested.apps[0].rank, 1);
+  assert.equal(ingested.apps[99].rank, 100);
+  assert.deepEqual(removedTabs, [77]);
+  assert.equal(
+    typeof syncValues.steamFastCheckSteamDbPopularDataRevision,
+    "number"
+  );
+
+  const cached = await sendMessage({
+    type: "steam-fast-check-steamdb-top-games",
+    year: 2026,
+    month: 9,
+    refresh: false
+  });
+  assert.equal(cached.ok, true);
+  assert.equal(cached.cached, true);
+  assert.equal(cached.apps.length, 100);
+  assert.equal(createdTabs.length, 1);
+});
+
+test("SteamDBページの表示順から重複なしで上位100件を送る", async () => {
+  let mutationCallback;
+  let sentMessage;
+  class MutationObserver {
+    constructor(callback) {
+      mutationCallback = callback;
+    }
+
+    observe() {}
+
+    disconnect() {}
+  }
+
+  const rows = Array.from({ length: 105 }, (_, index) => ({
+    dataset: { appid: String(6000000 + index) }
+  }));
+  rows.splice(20, 0, { dataset: { appid: "6000000" } });
+  const document = {
+    documentElement: {},
+    querySelectorAll(selector) {
+      assert.equal(selector, "table tbody tr.app");
+      return rows;
+    }
+  };
+  const window = {
+    location: {
+      href: "https://steamdb.info/stats/gameratings/2026/?displayOnly=Game&max_release=2026-09-30&min_release=2026-09-01&sort=followers_desc"
+    }
+  };
+  const chrome = {
+    runtime: {
+      async sendMessage(message) {
+        sentMessage = message;
+        return { ok: true };
+      }
+    }
+  };
+
+  vm.runInNewContext(steamDbSourceScript, {
+    Date,
+    MutationObserver,
+    Set,
+    URL,
+    chrome,
+    document,
+    window
+  });
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal(sentMessage.type, "steam-fast-check-steamdb-ingest-games");
+  assert.equal(sentMessage.year, 2026);
+  assert.equal(sentMessage.month, 9);
+  assert.equal(sentMessage.appIds.length, 100);
+  assert.equal(sentMessage.appIds[0], "6000000");
+  assert.equal(sentMessage.appIds[99], "6000099");
+  assert.equal(typeof mutationCallback, "function");
+  const sourceContentScript = manifest.content_scripts.find((entry) =>
+    entry.js.includes("src/steamdb-popular-source.js")
+  );
+  assert.deepEqual(sourceContentScript.matches, [
+    "https://steamdb.info/stats/gameratings/*"
+  ]);
+});
+
+test("SteamDB上位100件と一致する検索行へTOP100タグ用の順位を付ける", async () => {
+  const popularContentScript = manifest.content_scripts.find((entry) =>
+    entry.js.includes("src/popular-game-highlights.js")
+  );
+  assert.equal(popularContentScript.css, undefined);
+
+  class FakeRow {
+    constructor(appId) {
+      this.nodeType = 1;
+      this.dataset = { dsAppid: String(appId) };
+    }
+
+    matches(selector) {
+      return selector === "a.search_result_row";
+    }
+
+    querySelectorAll() {
+      return [];
+    }
+  }
+
+  const matchingRow = new FakeRow(111);
+  const ordinaryRow = new FakeRow(222);
+  const rows = [matchingRow, ordinaryRow];
+  let mutationCallback;
+  let storageChangeListener;
+  let requestCount = 0;
+  const dispatchedEvents = [];
+
+  class MutationObserver {
+    constructor(callback) {
+      mutationCallback = callback;
+    }
+
+    observe() {}
+  }
+
+  const document = {
+    getElementById(id) {
+      return id === "search_results" ? {} : null;
+    },
+    querySelectorAll(selector) {
+      return selector === "a.search_result_row" ? rows : [];
+    },
+    dispatchEvent(event) {
+      dispatchedEvents.push(event.type);
+    }
+  };
+  const chrome = {
+    runtime: {
+      async sendMessage(message) {
+        requestCount += 1;
+        assert.equal(message.type, "steam-fast-check-steamdb-top-games");
+        assert.equal(message.year, 2026);
+        assert.equal(message.month, 9);
+        assert.equal(message.refresh, requestCount === 1);
+        return {
+          ok: true,
+          apps: [{ appId: "111", rank: 4 }]
+        };
+      }
+    },
+    storage: {
+      sync: {
+        async get(defaults) {
+          return {
+            ...defaults,
+            steamFastCheckPopularHighlightEnabled: true,
+            steamFastCheckPopularHighlightYear: 2026,
+            steamFastCheckPopularHighlightMonth: 9
+          };
+        }
+      },
+      onChanged: {
+        addListener(listener) {
+          storageChangeListener = listener;
+        }
+      }
+    }
+  };
+  const window = {};
+  class CustomEvent {
+    constructor(type) {
+      this.type = type;
+    }
+  }
+
+  vm.runInNewContext(popularHighlightScript, {
+    CustomEvent,
+    Date,
+    Map,
+    MutationObserver,
+    chrome,
+    document,
+    window
+  });
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal(requestCount, 1);
+  assert.equal(matchingRow.dataset.steamFastCheckPopularRank, "4");
+  assert.equal(ordinaryRow.dataset.steamFastCheckPopularRank, undefined);
+  assert.ok(dispatchedEvents.includes("steam-fast-check-popular-tags-changed"));
+
+  const appendedRow = new FakeRow(111);
+  mutationCallback([{ addedNodes: [appendedRow] }]);
+  assert.equal(appendedRow.dataset.steamFastCheckPopularRank, "4");
+
+  storageChangeListener(
+    { steamFastCheckSteamDbPopularDataRevision: { newValue: Date.now() } },
+    "sync"
+  );
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(requestCount, 2);
+
+  storageChangeListener(
+    { steamFastCheckPopularHighlightEnabled: { newValue: false } },
+    "sync"
+  );
+  assert.equal(matchingRow.dataset.steamFastCheckPopularRank, undefined);
 });
 
 test("Gemini APIのモデル一覧を絞り込み、翻訳結果をキャッシュする", async () => {

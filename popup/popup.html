@@ -26,6 +26,57 @@
         </label>
       </section>
 
+      <section class="behavior_setting popular_toggle_setting" aria-labelledby="popular_setting_title">
+        <div class="setting_copy">
+          <h2 id="popular_setting_title">人気のゲームをハイライト</h2>
+          <p>指定月のSteamDBフォロワー上位100件をTOP100タグで示します。</p>
+        </div>
+        <label class="toggle_switch">
+          <input id="popular_highlight_enabled" class="toggle_input" type="checkbox" aria-label="人気のゲームをハイライトする">
+          <span class="toggle_control" aria-hidden="true"></span>
+        </label>
+      </section>
+
+      <details id="popular_settings_panel" class="translation_settings_panel popular_settings_panel">
+        <summary>
+          <span>人気ゲームの対象年月</span>
+          <span id="popular_settings_summary_status" class="settings_summary_status">未取得</span>
+        </summary>
+
+        <section class="translation_setting" aria-label="人気ゲームの対象年月設定">
+          <div class="period_inputs">
+            <label class="period_field" for="popular_highlight_year">
+              <span class="field_label">年</span>
+              <input id="popular_highlight_year" class="wide_input" type="number" min="2003" max="2100" step="1" inputmode="numeric">
+            </label>
+            <label class="period_field" for="popular_highlight_month">
+              <span class="field_label">月</span>
+              <select id="popular_highlight_month" class="wide_input">
+                <option value="1">1月</option>
+                <option value="2">2月</option>
+                <option value="3">3月</option>
+                <option value="4">4月</option>
+                <option value="5">5月</option>
+                <option value="6">6月</option>
+                <option value="7">7月</option>
+                <option value="8">8月</option>
+                <option value="9">9月</option>
+                <option value="10">10月</option>
+                <option value="11">11月</option>
+                <option value="12">12月</option>
+              </select>
+            </label>
+          </div>
+          <p class="field_help">Steam検索ページを開いた時に、通常のSteamDBページで選択月の一覧を1回読み込みます。</p>
+          <div class="popular_actions">
+            <button id="save_popular_settings" class="primary_button compact_button" type="button">対象年月を保存</button>
+            <button id="open_steamdb_page" class="secondary_button compact_button" type="button">SteamDBで対象一覧を開く</button>
+          </div>
+          <p id="popular_settings_status" class="inline_status" role="status" aria-live="polite"></p>
+          <p id="popular_highlight_status" class="inline_status" role="status" aria-live="polite"></p>
+        </section>
+      </details>
+
       <section class="behavior_setting gemini_toggle_setting" aria-labelledby="translation_setting_title">
         <div class="setting_copy">
           <h2 id="translation_setting_title">ゲーム説明をGeminiで翻訳</h2>
@@ -66,7 +117,7 @@
       </details>
 
       <h2 class="section_title">タグ強調</h2>
-      <p class="section_description">完全一致するユーザータグを、検索行とホバー詳細の両方で強調します。</p>
+      <p class="section_description">完全一致するユーザータグを、検索行とホバー詳細の両方で強調します。TOP100を追加すると、専用タグの色と表示順も設定できます。</p>
       <div class="column_labels" aria-hidden="true">
         <span>タグ名</span>
         <span>色</span>

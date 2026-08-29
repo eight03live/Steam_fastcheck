@@ -83,6 +83,37 @@ main {
   margin-bottom: 10px;
 }
 
+.popular_toggle_setting {
+  margin-bottom: 10px;
+}
+
+.popular_settings_panel {
+  margin-bottom: 17px;
+}
+
+.period_inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.period_field {
+  min-width: 0;
+}
+
+.popular_actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.popular_actions .compact_button {
+  width: 100%;
+  margin-top: 0;
+  padding: 0 8px;
+}
+
 .translation_settings_panel > summary {
   display: flex;
   align-items: center;
@@ -114,6 +145,22 @@ main {
 .translation_settings_panel > summary:focus-visible {
   outline: 2px solid #ffffff;
   outline-offset: -3px;
+}
+
+.translation_settings_panel > summary .settings_summary_status {
+  margin-left: auto;
+  color: #a4d007;
+  font-size: 10px;
+  font-weight: 400;
+  text-align: right;
+}
+
+.translation_settings_panel > summary .settings_summary_status.loading {
+  color: #67c1f5;
+}
+
+.translation_settings_panel > summary .settings_summary_status.error {
+  color: #ffb8b8;
 }
 
 .translation_setting {

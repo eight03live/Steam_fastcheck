@@ -6,6 +6,8 @@
   const STORAGE_KEY = "steamFastCheckTagHighlightRules";
   const OPEN_IN_NEW_TAB_STORAGE_KEY = "steamFastCheckOpenSearchResultsInNewTab";
   const MAX_VISIBLE_TAGS = 3;
+  const POPULAR_TAG_NAME = "TOP100";
+  const POPULAR_TAG_EVENT = "steam-fast-check-popular-tags-changed";
   const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
   if (window[PATCH_KEY]?.version === PATCH_VERSION) {
@@ -98,9 +100,16 @@
     }
 
     const rawTagIds = row.getAttribute("data-ds-tagids") || "[]";
+    const popularRankValue = String(
+      row.dataset?.steamFastCheckPopularRank || ""
+    );
+    const popularRank = /^\d+$/.test(popularRankValue)
+      ? Number(popularRankValue)
+      : null;
     if (
       platformArea.dataset.steamFastCheckTagsFor === rawTagIds &&
-      platformArea.dataset.steamFastCheckTagsRevision === String(rulesRevision)
+      platformArea.dataset.steamFastCheckTagsRevision === String(rulesRevision) &&
+      platformArea.dataset.steamFastCheckPopularRank === popularRankValue
     ) {
       return;
     }
@@ -112,34 +121,61 @@
     const allTagNames = parseTagIds(rawTagIds)
       .map((tagId) => tagNames.get(tagId))
       .filter(Boolean);
+    const availableTagNames = popularRank
+      ? [POPULAR_TAG_NAME, ...allTagNames]
+      : allTagNames;
     const highlightedTagNames = [...highlightRules.keys()]
       .map((highlightedName) =>
-        allTagNames.find(
+        availableTagNames.find(
           (tagName) => normalizeTagName(tagName) === highlightedName
         )
       )
       .filter(Boolean);
-    const prioritizedTagNames = [
+    let prioritizedTagNames = [
       ...highlightedTagNames,
-      ...allTagNames.filter((tagName) =>
+      ...availableTagNames.filter((tagName) =>
         !highlightRules.has(normalizeTagName(tagName))
       )
     ];
+    if (popularRank && !highlightRules.has(normalizeTagName(POPULAR_TAG_NAME))) {
+      prioritizedTagNames = [
+        POPULAR_TAG_NAME,
+        ...prioritizedTagNames.filter((tagName) => tagName !== POPULAR_TAG_NAME)
+      ];
+    }
+
     const visibleTagNames = prioritizedTagNames.slice(0, MAX_VISIBLE_TAGS);
+    if (popularRank && !visibleTagNames.includes(POPULAR_TAG_NAME)) {
+      const popularIndex = Math.min(
+        prioritizedTagNames.indexOf(POPULAR_TAG_NAME),
+        MAX_VISIBLE_TAGS - 1
+      );
+      visibleTagNames.pop();
+      visibleTagNames.splice(popularIndex, 0, POPULAR_TAG_NAME);
+    }
 
     const fragment = document.createDocumentFragment();
     for (const tagName of visibleTagNames) {
       const tag = document.createElement("span");
-      tag.className = "steam_fast_check_tag";
+      const isPopularTag = tagName === POPULAR_TAG_NAME;
+      tag.className = isPopularTag
+        ? "steam_fast_check_tag steam_fast_check_popular_tag"
+        : "steam_fast_check_tag";
       tag.textContent = tagName;
+      if (isPopularTag) {
+        tag.title = `SteamDBフォロワー上位100件 第${popularRank}位`;
+      }
       applyTagHighlight(tag, tagName);
       fragment.append(tag);
     }
 
-    if (allTagNames.length > visibleTagNames.length) {
+    const visibleUserTagCount = visibleTagNames.filter(
+      (tagName) => tagName !== POPULAR_TAG_NAME
+    ).length;
+    if (allTagNames.length > visibleUserTagCount) {
       const remaining = document.createElement("span");
       remaining.className = "steam_fast_check_tag steam_fast_check_tag_more";
-      remaining.textContent = `+${allTagNames.length - visibleTagNames.length}`;
+      remaining.textContent = `+${allTagNames.length - visibleUserTagCount}`;
       fragment.append(remaining);
     }
 
@@ -147,7 +183,13 @@
     platformArea.classList.add("steam_fast_check_tags");
     platformArea.dataset.steamFastCheckTagsFor = rawTagIds;
     platformArea.dataset.steamFastCheckTagsRevision = String(rulesRevision);
-    platformArea.title = allTagNames.join(" / ");
+    platformArea.dataset.steamFastCheckPopularRank = popularRankValue;
+    platformArea.title = [
+      popularRank
+        ? `TOP100（SteamDBフォロワー第${popularRank}位）`
+        : null,
+      ...allTagNames
+    ].filter(Boolean).join(" / ");
   }
 
   function decorateRowsWithin(root) {
@@ -219,6 +261,9 @@
   decorateRowsWithin(document);
   highlightHoverTagsWithin(document);
   document.addEventListener("click", handleSearchResultClick, true);
+  document.addEventListener(POPULAR_TAG_EVENT, () => {
+    decorateRowsWithin(document);
+  });
 
   const resultsRoot = document.getElementById("search_results");
   let resultsObserver = null;

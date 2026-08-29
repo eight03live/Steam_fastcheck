@@ -2,6 +2,10 @@
 
 const STORAGE_KEY = "steamFastCheckTagHighlightRules";
 const OPEN_IN_NEW_TAB_STORAGE_KEY = "steamFastCheckOpenSearchResultsInNewTab";
+const POPULAR_ENABLED_STORAGE_KEY = "steamFastCheckPopularHighlightEnabled";
+const POPULAR_YEAR_STORAGE_KEY = "steamFastCheckPopularHighlightYear";
+const POPULAR_MONTH_STORAGE_KEY = "steamFastCheckPopularHighlightMonth";
+const POPULAR_STATUS_STORAGE_KEY = "steamFastCheckSteamDbPopularStatusV1";
 const GEMINI_ENABLED_STORAGE_KEY = "steamFastCheckGeminiTranslationEnabled";
 const GEMINI_MODEL_STORAGE_KEY = "steamFastCheckGeminiModel";
 const GEMINI_SETTINGS_REVISION_STORAGE_KEY = "steamFastCheckGeminiSettingsRevision";
@@ -18,6 +22,9 @@ const COMING_SOON_CHECK_URL =
 const DEFAULT_COLOR = "#ffd166";
 const MAX_RULES = 30;
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+const currentDate = new Date();
+const DEFAULT_POPULAR_YEAR = currentDate.getFullYear();
+const DEFAULT_POPULAR_MONTH = currentDate.getMonth() + 1;
 
 const rulesContainer = document.getElementById("rules");
 const ruleTemplate = document.getElementById("rule_template");
@@ -26,6 +33,17 @@ const saveButton = document.getElementById("save");
 const statusElement = document.getElementById("status");
 const openInNewTabInput = document.getElementById("open_in_new_tab");
 const comingSoonPageButton = document.getElementById("comingsoon_page");
+const popularEnabledInput = document.getElementById("popular_highlight_enabled");
+const popularYearInput = document.getElementById("popular_highlight_year");
+const popularMonthInput = document.getElementById("popular_highlight_month");
+const popularSettingsPanel = document.getElementById("popular_settings_panel");
+const popularSettingsSummaryStatusElement = document.getElementById(
+  "popular_settings_summary_status"
+);
+const savePopularSettingsButton = document.getElementById("save_popular_settings");
+const openSteamDbPageButton = document.getElementById("open_steamdb_page");
+const popularSettingsStatusElement = document.getElementById("popular_settings_status");
+const popularStatusElement = document.getElementById("popular_highlight_status");
 const geminiEnabledInput = document.getElementById("gemini_translation_enabled");
 const geminiApiKeyInput = document.getElementById("gemini_api_key");
 const geminiModelSelect = document.getElementById("gemini_model");
@@ -37,6 +55,10 @@ const geminiSettingsPanel = document.getElementById("gemini_settings_panel");
 const saveGeminiSettingsButton = document.getElementById("save_gemini_settings");
 let modelsLoadedApiKey = "";
 let savedGeminiEnabled = false;
+let savedPopularEnabled = false;
+let savedPopularYear = DEFAULT_POPULAR_YEAR;
+let savedPopularMonth = DEFAULT_POPULAR_MONTH;
+let popularDataStatus = null;
 
 function normalizeColor(value) {
   const color = value.trim().toLowerCase();
@@ -51,6 +73,95 @@ function showStatus(message, isError = false) {
 function showTranslationStatus(message, isError = false) {
   translationStatusElement.textContent = message;
   translationStatusElement.classList.toggle("error", isError);
+}
+
+function showPopularSettingsStatus(message, isError = false) {
+  popularSettingsStatusElement.textContent = message;
+  popularSettingsStatusElement.classList.toggle("error", isError);
+}
+
+function updatePopularSettingsSummary() {
+  const period = `${savedPopularYear}年${savedPopularMonth}月`;
+  const matchesSavedPeriod =
+    Number(popularDataStatus?.year) === savedPopularYear &&
+    Number(popularDataStatus?.month) === savedPopularMonth;
+  let state = "未取得";
+  let stateClass = "";
+
+  if (matchesSavedPeriod && popularDataStatus?.ok === true) {
+    state = `${popularDataStatus.count || 0}件取得済み`;
+  } else if (matchesSavedPeriod && popularDataStatus?.ok === null) {
+    state = "取得中";
+    stateClass = "loading";
+  } else if (matchesSavedPeriod && popularDataStatus?.ok === false) {
+    if (popularDataStatus.cached) {
+      state = `${popularDataStatus.count || 0}件保存済み`;
+    } else {
+      state = "取得失敗";
+      stateClass = "error";
+    }
+  }
+
+  popularSettingsSummaryStatusElement.textContent = `${period}・${state}`;
+  popularSettingsSummaryStatusElement.classList.toggle(
+    "loading",
+    stateClass === "loading"
+  );
+  popularSettingsSummaryStatusElement.classList.toggle(
+    "error",
+    stateClass === "error"
+  );
+}
+
+function getPopularPeriod() {
+  const year = Number(popularYearInput.value);
+  const month = Number(popularMonthInput.value);
+  if (!Number.isInteger(year) || year < 2003 || year > 2100) {
+    throw new Error("人気ゲームの年を2003～2100の範囲で入力してください。");
+  }
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error("人気ゲームの月を選択してください。");
+  }
+  return { year, month };
+}
+
+function buildSteamDbPopularUrl(year, month) {
+  const monthText = String(month).padStart(2, "0");
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const url = new URL(`https://steamdb.info/stats/gameratings/${year}/`);
+  url.searchParams.set("displayOnly", "Game");
+  url.searchParams.set("max_release", `${year}-${monthText}-${lastDay}`);
+  url.searchParams.set("min_release", `${year}-${monthText}-01`);
+  url.searchParams.set("sort", "followers_desc");
+  return url.toString();
+}
+
+function showPopularStatus(status) {
+  popularDataStatus = status || null;
+  updatePopularSettingsSummary();
+  popularStatusElement.classList.toggle("error", status?.ok === false);
+  if (!status || !status.fetchedAt) {
+    popularStatusElement.textContent = "まだ一覧を参照していません。";
+    return;
+  }
+
+  const timestamp = new Date(status.fetchedAt).toLocaleString("ja-JP");
+  const period = `${status.year}年${status.month}月`;
+  if (status.ok === null) {
+    const cacheNote = status.cached
+      ? ` 保存済み${status.count}件を表示しながら更新します。`
+      : "";
+    popularStatusElement.textContent = `${period}: ${status.message || "SteamDBの一覧を読み込んでいます…"}${cacheNote}`;
+    return;
+  }
+  if (status.ok === false) {
+    const cacheNote = status.cached
+      ? ` 保存済み${status.count}件を使用します。`
+      : "";
+    popularStatusElement.textContent = `${period}: ${status.message || "取得できませんでした。"}${cacheNote}`;
+    return;
+  }
+  popularStatusElement.textContent = `${period}: ${status.count}件取得 / ${timestamp}`;
 }
 
 function formatBackgroundError(response, fallback) {
@@ -336,6 +447,55 @@ async function saveGeneralSettings() {
   }
 }
 
+async function savePopularSettings({ quiet = false } = {}) {
+  savePopularSettingsButton.disabled = true;
+  try {
+    const period = getPopularPeriod();
+    await chrome.storage.sync.set({
+      [POPULAR_YEAR_STORAGE_KEY]: period.year,
+      [POPULAR_MONTH_STORAGE_KEY]: period.month
+    });
+    savedPopularYear = period.year;
+    savedPopularMonth = period.month;
+    updatePopularSettingsSummary();
+    if (!quiet) {
+      showPopularSettingsStatus(`${period.year}年${period.month}月を保存しました。`);
+    }
+    return period;
+  } catch (error) {
+    showPopularSettingsStatus(error.message || "対象年月を保存できませんでした。", true);
+    return null;
+  } finally {
+    savePopularSettingsButton.disabled = false;
+  }
+}
+
+async function updatePopularEnabledImmediately() {
+  const requestedEnabled = popularEnabledInput.checked;
+  popularEnabledInput.disabled = true;
+  if (requestedEnabled) {
+    popularSettingsPanel.open = true;
+  }
+  try {
+    await chrome.storage.sync.set({
+      [POPULAR_ENABLED_STORAGE_KEY]: requestedEnabled
+    });
+    savedPopularEnabled = requestedEnabled;
+    showPopularSettingsStatus(requestedEnabled
+      ? "人気ゲームのハイライトをオンにしました。"
+      : "人気ゲームのハイライトをオフにしました。"
+    );
+  } catch (error) {
+    popularEnabledInput.checked = savedPopularEnabled;
+    showPopularSettingsStatus(
+      error.message || "ハイライト設定を変更できませんでした。",
+      true
+    );
+  } finally {
+    popularEnabledInput.disabled = false;
+  }
+}
+
 async function saveGeminiSettings() {
   saveGeminiSettingsButton.disabled = true;
   try {
@@ -403,13 +563,26 @@ async function loadSettings() {
       chrome.storage.sync.get({
         [STORAGE_KEY]: [],
         [OPEN_IN_NEW_TAB_STORAGE_KEY]: true,
+        [POPULAR_ENABLED_STORAGE_KEY]: false,
+        [POPULAR_YEAR_STORAGE_KEY]: DEFAULT_POPULAR_YEAR,
+        [POPULAR_MONTH_STORAGE_KEY]: DEFAULT_POPULAR_MONTH,
         [GEMINI_ENABLED_STORAGE_KEY]: false,
         [GEMINI_MODEL_STORAGE_KEY]: DEFAULT_GEMINI_MODEL
       }),
-      chrome.storage.local.get({ [GEMINI_API_KEY_STORAGE_KEY]: "" })
+      chrome.storage.local.get({
+        [GEMINI_API_KEY_STORAGE_KEY]: "",
+        [POPULAR_STATUS_STORAGE_KEY]: null
+      })
     ]);
     const rules = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
     openInNewTabInput.checked = stored[OPEN_IN_NEW_TAB_STORAGE_KEY] !== false;
+    popularEnabledInput.checked = stored[POPULAR_ENABLED_STORAGE_KEY] === true;
+    savedPopularEnabled = popularEnabledInput.checked;
+    savedPopularYear = Number(stored[POPULAR_YEAR_STORAGE_KEY]);
+    savedPopularMonth = Number(stored[POPULAR_MONTH_STORAGE_KEY]);
+    popularYearInput.value = String(savedPopularYear);
+    popularMonthInput.value = String(savedPopularMonth);
+    showPopularStatus(localStored[POPULAR_STATUS_STORAGE_KEY]);
     geminiEnabledInput.checked = stored[GEMINI_ENABLED_STORAGE_KEY] === true;
     savedGeminiEnabled = geminiEnabledInput.checked;
     geminiEnabledInput.disabled = false;
@@ -425,6 +598,13 @@ async function loadSettings() {
     }
   } catch {
     openInNewTabInput.checked = true;
+    popularEnabledInput.checked = false;
+    savedPopularEnabled = false;
+    savedPopularYear = DEFAULT_POPULAR_YEAR;
+    savedPopularMonth = DEFAULT_POPULAR_MONTH;
+    popularYearInput.value = String(DEFAULT_POPULAR_YEAR);
+    popularMonthInput.value = String(DEFAULT_POPULAR_MONTH);
+    showPopularStatus(null);
     geminiEnabledInput.checked = false;
     savedGeminiEnabled = false;
     geminiEnabledInput.disabled = false;
@@ -440,6 +620,10 @@ testGeminiButton.addEventListener("click", testGeminiConnection);
 clearTranslationCacheButton.addEventListener("click", clearTranslationCache);
 saveGeminiSettingsButton.addEventListener("click", saveGeminiSettings);
 geminiEnabledInput.addEventListener("change", updateGeminiEnabledImmediately);
+savePopularSettingsButton.addEventListener("click", () => savePopularSettings());
+popularEnabledInput.addEventListener("change", updatePopularEnabledImmediately);
+popularYearInput.addEventListener("input", () => showPopularSettingsStatus(""));
+popularMonthInput.addEventListener("change", () => showPopularSettingsStatus(""));
 geminiSettingsPanel.addEventListener("toggle", () => {
   const apiKey = geminiApiKeyInput.value.trim();
   if (geminiSettingsPanel.open && apiKey && apiKey !== modelsLoadedApiKey) {
@@ -453,6 +637,24 @@ geminiApiKeyInput.addEventListener("input", () => {
 comingSoonPageButton.addEventListener("click", async () => {
   await chrome.tabs.create({ url: COMING_SOON_CHECK_URL });
   window.close();
+});
+openSteamDbPageButton.addEventListener("click", async () => {
+  try {
+    const period = await savePopularSettings({ quiet: true });
+    if (!period) {
+      return;
+    }
+    const { year, month } = period;
+    await chrome.tabs.create({ url: buildSteamDbPopularUrl(year, month) });
+    window.close();
+  } catch (error) {
+    showStatus(error.message || "SteamDBを開けませんでした。", true);
+  }
+});
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes[POPULAR_STATUS_STORAGE_KEY]) {
+    showPopularStatus(changes[POPULAR_STATUS_STORAGE_KEY].newValue);
+  }
 });
 saveButton.addEventListener("click", saveGeneralSettings);
 loadSettings();

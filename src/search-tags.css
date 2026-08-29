@@ -27,6 +27,15 @@
   background: rgba(143, 152, 160, 0.12);
 }
 
+.search_platforms.steam_fast_check_tags .steam_fast_check_tag.steam_fast_check_popular_tag {
+  flex: 0 0 auto;
+  max-width: none;
+  color: #101820;
+  font-weight: 700;
+  background: #f3c243;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.72);
+}
+
 .search_platforms.steam_fast_check_tags .steam_fast_check_tag.steam_fast_check_tag_highlight,
 #global_hover .hover_tag_row .app_tag.steam_fast_check_tag_highlight {
   color: var(--steam-fast-check-tag-highlight-text) !important;

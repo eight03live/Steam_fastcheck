@@ -10,6 +10,13 @@ const MAX_TEXTS = 160;
 const MAX_TOTAL_CHARACTERS = 120000;
 const MAX_CACHE_ENTRIES = 60;
 const API_ROOT = "https://generativelanguage.googleapis.com/v1beta";
+const STEAMDB_CACHE_STORAGE_KEY = "steamFastCheckSteamDbPopularCacheV1";
+const STEAMDB_STATUS_STORAGE_KEY = "steamFastCheckSteamDbPopularStatusV1";
+const STEAMDB_DATA_REVISION_STORAGE_KEY = "steamFastCheckSteamDbPopularDataRevision";
+const STEAMDB_MAX_RESULTS = 100;
+const STEAMDB_MIN_YEAR = 2003;
+const STEAMDB_MAX_YEAR = 2100;
+const steamDbSourceTabs = new Map();
 
 const storageAccessReady = (async () => {
   if (typeof chrome.storage.local.setAccessLevel === "function") {
@@ -23,6 +30,16 @@ class GeminiTranslationError extends Error {
     this.name = "GeminiTranslationError";
     this.code = code;
     this.phase = phase;
+    this.status = status;
+  }
+}
+
+class SteamDbPopularError extends Error {
+  constructor(code, message, status = null) {
+    super(message);
+    this.name = "SteamDbPopularError";
+    this.code = code;
+    this.phase = "steamdb";
     this.status = status;
   }
 }
@@ -73,7 +90,10 @@ function validateTexts(value) {
 }
 
 function makeErrorResponse(error) {
-  if (error instanceof GeminiTranslationError) {
+  if (
+    error instanceof GeminiTranslationError ||
+    error instanceof SteamDbPopularError
+  ) {
     return {
       ok: false,
       code: error.code,
@@ -90,6 +110,296 @@ function makeErrorResponse(error) {
     message: error?.message || "予期しないエラーが発生しました。",
     status: null
   };
+}
+
+function validateSteamDbPeriod(yearValue, monthValue) {
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  if (
+    !Number.isInteger(year) ||
+    year < STEAMDB_MIN_YEAR ||
+    year > STEAMDB_MAX_YEAR ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
+    throw new SteamDbPopularError(
+      "invalid-period",
+      "SteamDB参照用の年または月が不正です。"
+    );
+  }
+  return { year, month };
+}
+
+function buildSteamDbPopularUrl(year, month) {
+  const monthText = String(month).padStart(2, "0");
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const url = new URL(`https://steamdb.info/stats/gameratings/${year}/`);
+  url.searchParams.set("displayOnly", "Game");
+  url.searchParams.set("max_release", `${year}-${monthText}-${lastDay}`);
+  url.searchParams.set("min_release", `${year}-${monthText}-01`);
+  url.searchParams.set("sort", "followers_desc");
+  return url;
+}
+
+function addSteamDbApp(apps, seenAppIds, appIdValue) {
+  const appId = String(appIdValue || "");
+  if (!/^\d+$/.test(appId) || seenAppIds.has(appId)) {
+    return;
+  }
+  seenAppIds.add(appId);
+  apps.push({ appId, rank: apps.length + 1 });
+}
+
+async function readSteamDbCache(cacheKey) {
+  await storageAccessReady;
+  const stored = await chrome.storage.local.get({
+    [STEAMDB_CACHE_STORAGE_KEY]: {}
+  });
+  const cache = stored[STEAMDB_CACHE_STORAGE_KEY];
+  const entry = cache && typeof cache === "object" ? cache[cacheKey] : null;
+  return Array.isArray(entry?.apps) ? entry : null;
+}
+
+async function writeSteamDbCache(cacheKey, entry) {
+  await storageAccessReady;
+  const stored = await chrome.storage.local.get({
+    [STEAMDB_CACHE_STORAGE_KEY]: {}
+  });
+  const current = stored[STEAMDB_CACHE_STORAGE_KEY];
+  const cache = current && typeof current === "object" ? { ...current } : {};
+  cache[cacheKey] = entry;
+
+  const newestEntries = Object.entries(cache)
+    .sort((left, right) => (right[1]?.fetchedAt || 0) - (left[1]?.fetchedAt || 0))
+    .slice(0, 12);
+  await chrome.storage.local.set({
+    [STEAMDB_CACHE_STORAGE_KEY]: Object.fromEntries(newestEntries)
+  });
+}
+
+async function writeSteamDbStatus(status) {
+  await storageAccessReady;
+  await chrome.storage.local.set({ [STEAMDB_STATUS_STORAGE_KEY]: status });
+}
+
+function parseSteamDbSourceUrl(sourceUrlValue) {
+  let url;
+  try {
+    url = new URL(sourceUrlValue);
+  } catch {
+    throw new SteamDbPopularError(
+      "steamdb-invalid-source",
+      "SteamDB一覧のURLを確認できませんでした。"
+    );
+  }
+
+  const yearMatch = url.pathname.match(/^\/stats\/gameratings\/(\d{4})\/?$/);
+  const minMatch = (url.searchParams.get("min_release") || "")
+    .match(/^(\d{4})-(\d{2})-01$/);
+  const maxMatch = (url.searchParams.get("max_release") || "")
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "steamdb.info" ||
+    !yearMatch ||
+    !minMatch ||
+    !maxMatch ||
+    url.searchParams.get("displayOnly") !== "Game" ||
+    url.searchParams.get("sort") !== "followers_desc"
+  ) {
+    throw new SteamDbPopularError(
+      "steamdb-invalid-source",
+      "フォロワー順のSteamDB対象一覧ではありません。"
+    );
+  }
+
+  const { year, month } = validateSteamDbPeriod(yearMatch[1], minMatch[2]);
+  const expectedLastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (
+    Number(minMatch[1]) !== year ||
+    Number(maxMatch[1]) !== year ||
+    Number(maxMatch[2]) !== month ||
+    Number(maxMatch[3]) !== expectedLastDay
+  ) {
+    throw new SteamDbPopularError(
+      "steamdb-invalid-source",
+      "SteamDB一覧の対象年月を確認できませんでした。"
+    );
+  }
+  return { year, month, sourceUrl: url.toString() };
+}
+
+function normalizeSteamDbAppIds(values) {
+  if (!Array.isArray(values)) {
+    throw new SteamDbPopularError(
+      "steamdb-results-missing",
+      "SteamDBの上位ゲーム一覧を読み取れませんでした。"
+    );
+  }
+
+  const apps = [];
+  const seenAppIds = new Set();
+  for (const value of values) {
+    addSteamDbApp(apps, seenAppIds, value);
+    if (apps.length >= STEAMDB_MAX_RESULTS) {
+      break;
+    }
+  }
+  if (apps.length === 0) {
+    throw new SteamDbPopularError(
+      "steamdb-results-missing",
+      "SteamDBの上位ゲーム一覧を読み取れませんでした。"
+    );
+  }
+  return apps;
+}
+
+async function readCachedSteamDbPopularGames(year, month) {
+  const cacheKey = `${year}-${String(month).padStart(2, "0")}`;
+  const cached = await readSteamDbCache(cacheKey);
+  if (!cached) {
+    return {
+      ok: true,
+      year,
+      month,
+      sourceUrl: buildSteamDbPopularUrl(year, month).toString(),
+      fetchedAt: null,
+      apps: [],
+      cached: false,
+      pending: true
+    };
+  }
+  return { ok: true, ...cached, cached: true };
+}
+
+async function requestSteamDbPopularGames(yearValue, monthValue, refreshValue) {
+  const { year, month } = validateSteamDbPeriod(yearValue, monthValue);
+  const cacheKey = `${year}-${String(month).padStart(2, "0")}`;
+  const sourceUrl = buildSteamDbPopularUrl(year, month).toString();
+  const cachedResponse = await readCachedSteamDbPopularGames(year, month);
+
+  if (refreshValue === false || steamDbSourceTabs.has(cacheKey)) {
+    return cachedResponse;
+  }
+
+  steamDbSourceTabs.set(cacheKey, null);
+  try {
+    await writeSteamDbStatus({
+      ok: null,
+      year,
+      month,
+      sourceUrl,
+      fetchedAt: Date.now(),
+      count: cachedResponse.apps.length,
+      cached: cachedResponse.apps.length > 0,
+      message: "SteamDBの一覧を通常のタブで読み込んでいます…"
+    });
+    const tab = await chrome.tabs.create({ url: sourceUrl, active: false });
+    if (!Number.isInteger(tab?.id)) {
+      throw new Error("SteamDB tab id is missing.");
+    }
+    if (steamDbSourceTabs.has(cacheKey)) {
+      steamDbSourceTabs.set(cacheKey, tab.id);
+    } else {
+      chrome.tabs.remove(tab.id).catch(() => {});
+    }
+    return { ...cachedResponse, refreshing: true };
+  } catch {
+    steamDbSourceTabs.delete(cacheKey);
+    const error = new SteamDbPopularError(
+      "steamdb-tab-open-failed",
+      "SteamDBの対象一覧を開けませんでした。設定から一覧を開いてください。"
+    );
+    const errorResponse = makeErrorResponse(error);
+    await writeSteamDbStatus({
+      ...errorResponse,
+      year,
+      month,
+      sourceUrl,
+      fetchedAt: cachedResponse.fetchedAt || Date.now(),
+      count: cachedResponse.apps.length,
+      cached: cachedResponse.apps.length > 0
+    }).catch(() => {});
+    return cachedResponse.apps.length > 0
+      ? { ...cachedResponse, stale: true, warning: errorResponse }
+      : errorResponse;
+  }
+}
+
+async function ingestSteamDbPopularGames(message, sender) {
+  if (!sender?.url?.startsWith("https://steamdb.info/")) {
+    throw new SteamDbPopularError(
+      "steamdb-invalid-source",
+      "SteamDB以外のページから一覧を受け取ることはできません。"
+    );
+  }
+
+  const source = parseSteamDbSourceUrl(sender.url);
+  if (Number(message.year) !== source.year || Number(message.month) !== source.month) {
+    throw new SteamDbPopularError(
+      "steamdb-invalid-source",
+      "SteamDB一覧の対象年月が一致しません。"
+    );
+  }
+  const apps = normalizeSteamDbAppIds(message.appIds);
+  const fetchedAt = Date.now();
+  const cacheKey = `${source.year}-${String(source.month).padStart(2, "0")}`;
+  const entry = { ...source, fetchedAt, apps };
+
+  await writeSteamDbCache(cacheKey, entry);
+  await writeSteamDbStatus({
+    ok: true,
+    ...source,
+    fetchedAt,
+    count: apps.length,
+    cached: false
+  });
+  await chrome.storage.sync.set({
+    [STEAMDB_DATA_REVISION_STORAGE_KEY]: fetchedAt
+  });
+
+  const sourceTabId = steamDbSourceTabs.get(cacheKey);
+  steamDbSourceTabs.delete(cacheKey);
+  if (Number.isInteger(sourceTabId)) {
+    chrome.tabs.remove(sourceTabId).catch(() => {});
+  }
+  return { ok: true, ...entry, cached: false };
+}
+
+async function updateSteamDbSourceStatus(message, sender) {
+  if (!sender?.url?.startsWith("https://steamdb.info/")) {
+    throw new SteamDbPopularError(
+      "steamdb-invalid-source",
+      "SteamDB以外のページから状態を受け取ることはできません。"
+    );
+  }
+  const source = parseSteamDbSourceUrl(sender.url);
+  if (Number(message.year) !== source.year || Number(message.month) !== source.month) {
+    throw new SteamDbPopularError(
+      "steamdb-invalid-source",
+      "SteamDB一覧の対象年月が一致しません。"
+    );
+  }
+  const cached = await readSteamDbCache(
+    `${source.year}-${String(source.month).padStart(2, "0")}`
+  );
+  const status = {
+    ok: false,
+    code: "steamdb-browser-check",
+    phase: "steamdb",
+    message: "開いたSteamDBタブでブラウザー確認を完了してください。ページ本体が表示されると自動で反映します。",
+    status: null,
+    ...source,
+    fetchedAt: Date.now(),
+    count: cached?.apps?.length || 0,
+    cached: Boolean(cached)
+  };
+  await writeSteamDbStatus(status);
+  if (Number.isInteger(sender.tab?.id)) {
+    chrome.tabs.update(sender.tab.id, { active: true }).catch(() => {});
+  }
+  return status;
 }
 
 async function parseApiResponse(response, phase) {
@@ -407,8 +717,18 @@ async function testConnection(message) {
   return { ok: true, model, sample: translations[0] };
 }
 
-async function handleMessage(message) {
+async function handleMessage(message, sender) {
   switch (message?.type) {
+    case "steam-fast-check-steamdb-top-games":
+      return requestSteamDbPopularGames(
+        message.year,
+        message.month,
+        message.refresh
+      );
+    case "steam-fast-check-steamdb-ingest-games":
+      return ingestSteamDbPopularGames(message, sender);
+    case "steam-fast-check-steamdb-source-status":
+      return updateSteamDbSourceStatus(message, sender);
     case "steam-fast-check-gemini-translate":
       return translate(message);
     case "steam-fast-check-gemini-list-models":
@@ -424,13 +744,21 @@ async function handleMessage(message) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message?.type?.startsWith("steam-fast-check-gemini-")) {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message?.type?.startsWith("steam-fast-check-")) {
     return false;
   }
 
-  handleMessage(message)
+  handleMessage(message, sender)
     .then((response) => sendResponse(response))
     .catch((error) => sendResponse(makeErrorResponse(error)));
   return true;
+});
+
+chrome.tabs?.onRemoved?.addListener((tabId) => {
+  for (const [cacheKey, sourceTabId] of steamDbSourceTabs) {
+    if (sourceTabId === tabId) {
+      steamDbSourceTabs.delete(cacheKey);
+    }
+  }
 });
