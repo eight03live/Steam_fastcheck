@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Steam Fast Check",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Steamの検索結果を高速化し、タグ・フレンド人気度・Geminiによるゲーム説明翻訳を見やすくします。",
   "permissions": [
     "storage"

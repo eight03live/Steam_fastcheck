@@ -759,7 +759,7 @@ test("フレンド人数別の仮色を明るい4色で定義する", () => {
 
 test("拡張アイコンの設定ポップアップから各設定を保存する", () => {
   assert.equal(manifest.name, "Steam Fast Check");
-  assert.equal(manifest.version, "1.2.0");
+  assert.equal(manifest.version, "1.2.1");
   assert.equal(manifest.action.default_title, "Steam Fast Check 設定");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions, [
