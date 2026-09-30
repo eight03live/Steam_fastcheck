@@ -1,0 +1,50 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ソースコードを取得
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: バージョンを確認
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(jq -r '.version' manifest.json)
+
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "タグ $TAG と manifest.json の $VERSION が一致しません"
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: 配布用ZIPを作成
+        run: |
+          mkdir -p release-assets
+          zip -r "release-assets/steam-fast-check-${VERSION}.zip" \
+            manifest.json background popup src README.md
+
+      - name: Releaseを公開してZIPを添付
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            "release-assets/steam-fast-check-${VERSION}.zip" \
+            --verify-tag \
+            --title "Steam Fast Check ${VERSION}" \
+            --generate-notes
