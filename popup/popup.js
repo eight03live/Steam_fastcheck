@@ -20,6 +20,8 @@ const FALLBACK_GEMINI_MODELS = [
 ];
 const COMING_SOON_CHECK_URL =
   "https://store.steampowered.com/search/?hwtype=0&supportedlang=japanese%2Cenglish&category1=998&os=win&filter=comingsoon&ndl=1";
+const RELEASED_CHECK_URL =
+  "https://store.steampowered.com/search/?sort_by=Released_DESC&hwtype=0&supportedlang=japanese%2Cenglish&category1=998&os=win&ndl=1";
 const DEFAULT_COLOR = "#ffd166";
 const MAX_RULES = 30;
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
@@ -45,6 +47,7 @@ const screenshotIntervalStatusElement = document.getElementById(
   "screenshot_interval_status"
 );
 const comingSoonPageButton = document.getElementById("comingsoon_page");
+const releasedPageButton = document.getElementById("released_page");
 const popularEnabledInput = document.getElementById("popular_highlight_enabled");
 const popularYearInput = document.getElementById("popular_highlight_year");
 const popularMonthInput = document.getElementById("popular_highlight_month");
@@ -725,6 +728,10 @@ geminiApiKeyInput.addEventListener("input", () => {
 });
 comingSoonPageButton.addEventListener("click", async () => {
   await chrome.tabs.create({ url: COMING_SOON_CHECK_URL });
+  window.close();
+});
+releasedPageButton.addEventListener("click", async () => {
+  await chrome.tabs.create({ url: RELEASED_CHECK_URL });
   window.close();
 });
 openSteamDbPageButton.addEventListener("click", async () => {
