@@ -17,6 +17,20 @@ const STEAMDB_MAX_RESULTS = 100;
 const STEAMDB_MIN_YEAR = 2003;
 const STEAMDB_MAX_YEAR = 2100;
 const steamDbSourceTabs = new Map();
+const GAMEPASS_CACHE_STORAGE_KEY = "steamFastCheckGamePassCacheV1";
+const GAMEPASS_STATUS_STORAGE_KEY = "steamFastCheckGamePassStatusV1";
+const GAMEPASS_DATA_REVISION_STORAGE_KEY = "steamFastCheckGamePassDataRevision";
+const GAMEPASS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const GAMEPASS_SIGL_IDS = [
+  "609d944c-d395-4c0a-9ea4-e9f39b52c1ad",
+  "fdd9e2a7-0fee-49f6-ad69-4354098401ff"
+];
+const GAMEPASS_MARKETS = [
+  { market: "US", language: "en-us" },
+  { market: "JP", language: "ja-jp" }
+];
+const GAMEPASS_BATCH_SIZE = 200;
+let gamePassFetchPromise = null;
 
 const storageAccessReady = (async () => {
   if (typeof chrome.storage.local.setAccessLevel === "function") {
@@ -40,6 +54,16 @@ class SteamDbPopularError extends Error {
     this.name = "SteamDbPopularError";
     this.code = code;
     this.phase = "steamdb";
+    this.status = status;
+  }
+}
+
+class GamePassCatalogError extends Error {
+  constructor(code, message, status = null) {
+    super(message);
+    this.name = "GamePassCatalogError";
+    this.code = code;
+    this.phase = "gamepass";
     this.status = status;
   }
 }
@@ -92,7 +116,8 @@ function validateTexts(value) {
 function makeErrorResponse(error) {
   if (
     error instanceof GeminiTranslationError ||
-    error instanceof SteamDbPopularError
+    error instanceof SteamDbPopularError ||
+    error instanceof GamePassCatalogError
   ) {
     return {
       ok: false,
@@ -400,6 +425,368 @@ async function updateSteamDbSourceStatus(message, sender) {
     chrome.tabs.update(sender.tab.id, { active: true }).catch(() => {});
   }
   return status;
+}
+
+async function readGamePassCache() {
+  await storageAccessReady;
+  const stored = await chrome.storage.local.get({
+    [GAMEPASS_CACHE_STORAGE_KEY]: null
+  });
+  const entry = stored[GAMEPASS_CACHE_STORAGE_KEY];
+  return entry &&
+    typeof entry === "object" &&
+    Array.isArray(entry.titles) &&
+    Array.isArray(entry.upcomingTitles)
+    ? entry
+    : null;
+}
+
+async function writeGamePassCache(entry) {
+  await storageAccessReady;
+  await chrome.storage.local.set({
+    [GAMEPASS_CACHE_STORAGE_KEY]: entry
+  });
+}
+
+async function writeGamePassStatus(status) {
+  await storageAccessReady;
+  await chrome.storage.local.set({
+    [GAMEPASS_STATUS_STORAGE_KEY]: status
+  });
+}
+
+async function fetchGamePassProductIds() {
+  const requests = [];
+  for (const siglId of GAMEPASS_SIGL_IDS) {
+    for (const { market, language } of GAMEPASS_MARKETS) {
+      const url = new URL("https://catalog.gamepass.com/sigls/v2");
+      url.searchParams.set("id", siglId);
+      url.searchParams.set("language", language);
+      url.searchParams.set("market", market);
+      requests.push(
+        fetch(url)
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new GamePassCatalogError(
+                "gamepass-sigl-http-error",
+                `Xbox Game Pass一覧の取得がHTTP ${response.status}で失敗しました。`,
+                response.status
+              );
+            }
+            return response.json();
+          })
+      );
+    }
+  }
+
+  const settled = await Promise.allSettled(requests);
+  const productIds = [];
+  const seenIds = new Set();
+  let anySucceeded = false;
+
+  for (const result of settled) {
+    if (result.status !== "fulfilled" || !Array.isArray(result.value)) {
+      continue;
+    }
+    anySucceeded = true;
+    for (const item of result.value) {
+      const id = typeof item?.id === "string" ? item.id.trim().toUpperCase() : "";
+      if (/^[A-Z0-9]{10,16}$/.test(id) && !seenIds.has(id)) {
+        seenIds.add(id);
+        productIds.push(id);
+      }
+    }
+  }
+
+  if (!anySucceeded) {
+    const firstError = settled.find((item) => item.status === "rejected")?.reason;
+    if (firstError instanceof GamePassCatalogError) {
+      throw firstError;
+    }
+    throw new GamePassCatalogError(
+      "gamepass-network-error",
+      "Xbox Game PassのカタログAPIへ接続できませんでした。"
+    );
+  }
+
+  if (productIds.length === 0) {
+    throw new GamePassCatalogError(
+      "gamepass-empty-catalog",
+      "Xbox Game Passの対象ゲームIDを取得できませんでした。"
+    );
+  }
+
+  return productIds;
+}
+
+function parseCatalogReleaseTimestamp(rawDate) {
+  if (typeof rawDate !== "string") {
+    return null;
+  }
+  const trimmed = rawDate.trim();
+  if (!trimmed || /^999[89]/.test(trimmed) || /^1753/.test(trimmed)) {
+    return null;
+  }
+  const timestamp = Date.parse(trimmed);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function extractProductReleaseTimestamps(product) {
+  const timestamps = [];
+  const marketProperties = Array.isArray(product?.MarketProperties)
+    ? product.MarketProperties
+    : [];
+  for (const mp of marketProperties) {
+    const ts = parseCatalogReleaseTimestamp(mp?.OriginalReleaseDate);
+    if (ts !== null) {
+      timestamps.push(ts);
+    }
+  }
+
+  const skuAvailabilities = Array.isArray(product?.DisplaySkuAvailabilities)
+    ? product.DisplaySkuAvailabilities
+    : [];
+  for (const skuEntry of skuAvailabilities) {
+    const skuMarketProps = Array.isArray(skuEntry?.Sku?.MarketProperties)
+      ? skuEntry.Sku.MarketProperties
+      : [];
+    for (const smp of skuMarketProps) {
+      for (const candidate of [smp?.FirstAvailableDate, smp?.PreOrderReleaseDate]) {
+        const ts = parseCatalogReleaseTimestamp(candidate);
+        if (ts !== null) {
+          timestamps.push(ts);
+        }
+      }
+    }
+  }
+
+  return timestamps;
+}
+
+async function fetchGamePassTitlesForMarket(productIds, market, language) {
+  const products = [];
+  let fallbackIndex = 0;
+  for (let start = 0; start < productIds.length; start += GAMEPASS_BATCH_SIZE) {
+    const batchIds = productIds.slice(start, start + GAMEPASS_BATCH_SIZE);
+    const url = new URL("https://displaycatalog.mp.microsoft.com/v7.0/products");
+    url.searchParams.set("bigIds", batchIds.join(","));
+    url.searchParams.set("market", market);
+    url.searchParams.set("languages", language);
+
+    let response;
+    try {
+      response = await fetch(url);
+    } catch {
+      throw new GamePassCatalogError(
+        "gamepass-network-error",
+        "Microsoft Storeの製品カタログAPIへ接続できませんでした。"
+      );
+    }
+
+    if (!response.ok) {
+      throw new GamePassCatalogError(
+        "gamepass-catalog-http-error",
+        `Microsoft Store製品情報の取得がHTTP ${response.status}で失敗しました。`,
+        response.status
+      );
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new GamePassCatalogError(
+        "gamepass-invalid-json",
+        "Microsoft Storeの製品カタログ応答を読み取れませんでした。",
+        response.status
+      );
+    }
+
+    if (!Array.isArray(data?.Products)) {
+      continue;
+    }
+
+    for (const product of data.Products) {
+      fallbackIndex += 1;
+      const productId = typeof product?.ProductId === "string" && product.ProductId.trim()
+        ? product.ProductId.trim().toUpperCase()
+        : `PRODUCT_${fallbackIndex}`;
+      const productTitles = [];
+      const localizedList = Array.isArray(product?.LocalizedProperties)
+        ? product.LocalizedProperties
+        : [];
+      for (const localized of localizedList) {
+        const productTitle = typeof localized?.ProductTitle === "string"
+          ? localized.ProductTitle.trim()
+          : "";
+        if (productTitle) {
+          productTitles.push(productTitle);
+        }
+      }
+
+      if (productTitles.length > 0) {
+        products.push({
+          productId,
+          titles: productTitles,
+          releaseTimestamps: extractProductReleaseTimestamps(product)
+        });
+      }
+    }
+  }
+
+  return products;
+}
+
+async function fetchFreshGamePassCatalog(cachedEntry = null) {
+  await writeGamePassStatus({
+    ok: null,
+    fetchedAt: Date.now(),
+    count: cachedEntry?.count || 0,
+    cached: Boolean(cachedEntry?.titles?.length),
+    message: "Xbox Game Passの一覧を取得しています…"
+  });
+
+  const productIds = await fetchGamePassProductIds();
+  const marketResults = await Promise.allSettled(
+    GAMEPASS_MARKETS.map(({ market, language }) =>
+      fetchGamePassTitlesForMarket(productIds, market, language)
+    )
+  );
+
+  const productsById = new Map();
+  let anyMarketSucceeded = false;
+  for (const result of marketResults) {
+    if (result.status !== "fulfilled" || !Array.isArray(result.value)) {
+      continue;
+    }
+    anyMarketSucceeded = true;
+    for (const item of result.value) {
+      if (!item || !Array.isArray(item.titles)) {
+        continue;
+      }
+      const existing = productsById.get(item.productId) || {
+        titles: new Set(),
+        releaseTimestamps: []
+      };
+      for (const title of item.titles) {
+        if (typeof title === "string" && title.trim()) {
+          existing.titles.add(title.trim());
+        }
+      }
+      if (Array.isArray(item.releaseTimestamps)) {
+        existing.releaseTimestamps.push(...item.releaseTimestamps);
+      }
+      productsById.set(item.productId, existing);
+    }
+  }
+
+  if (!anyMarketSucceeded) {
+    const firstError = marketResults.find((item) => item.status === "rejected")?.reason;
+    if (firstError instanceof GamePassCatalogError) {
+      throw firstError;
+    }
+    throw new GamePassCatalogError(
+      "gamepass-catalog-error",
+      "Xbox Game Passのタイトル詳細を取得できませんでした。"
+    );
+  }
+
+  const fetchedAt = Date.now();
+  const upcomingCutoffMs = fetchedAt - 7 * 24 * 60 * 60 * 1000;
+  const uniqueTitles = new Set();
+  const uniqueUpcomingTitles = new Set();
+
+  for (const product of productsById.values()) {
+    const validTimestamps = product.releaseTimestamps.filter((ts) => Number.isFinite(ts));
+    const minReleaseTimestamp = validTimestamps.length > 0
+      ? Math.min(...validTimestamps)
+      : null;
+    const isUpcoming =
+      minReleaseTimestamp === null || minReleaseTimestamp >= upcomingCutoffMs;
+
+    for (const title of product.titles) {
+      uniqueTitles.add(title);
+      if (isUpcoming) {
+        uniqueUpcomingTitles.add(title);
+      }
+    }
+  }
+
+  const titles = [...uniqueTitles];
+  const upcomingTitles = [...uniqueUpcomingTitles];
+  if (titles.length === 0) {
+    throw new GamePassCatalogError(
+      "gamepass-titles-missing",
+      "Xbox Game Passのタイトル一覧を読み取れませんでした。"
+    );
+  }
+
+  const count = productIds.length;
+  const entry = { fetchedAt, count, titles, upcomingTitles };
+
+  await writeGamePassCache(entry);
+  await writeGamePassStatus({
+    ok: true,
+    fetchedAt,
+    count,
+    titleCount: titles.length,
+    cached: false
+  });
+  await chrome.storage.sync.set({
+    [GAMEPASS_DATA_REVISION_STORAGE_KEY]: fetchedAt
+  });
+
+  return { ok: true, ...entry, cached: false };
+}
+
+async function requestGamePassGames(refreshValue) {
+  const cached = await readGamePassCache();
+  const cacheFresh = Boolean(
+    cached &&
+    cached.titles.length > 0 &&
+    Number.isFinite(cached.fetchedAt) &&
+    Date.now() - cached.fetchedAt < GAMEPASS_CACHE_TTL_MS
+  );
+
+  if (!refreshValue && cacheFresh) {
+    return { ok: true, ...cached, cached: true };
+  }
+
+  if (!gamePassFetchPromise) {
+    gamePassFetchPromise = fetchFreshGamePassCatalog(cached).finally(() => {
+      gamePassFetchPromise = null;
+    });
+  }
+
+  try {
+    return await gamePassFetchPromise;
+  } catch (error) {
+    const errorResponse = makeErrorResponse(
+      error instanceof GamePassCatalogError
+        ? error
+        : new GamePassCatalogError(
+          "gamepass-unexpected-error",
+          error?.message || "Xbox Game Passの一覧を取得できませんでした。"
+        )
+    );
+    await writeGamePassStatus({
+      ...errorResponse,
+      fetchedAt: cached?.fetchedAt || Date.now(),
+      count: cached?.count || 0,
+      cached: Boolean(cached?.titles?.length)
+    }).catch(() => {});
+
+    if (cached && cached.titles.length > 0) {
+      return {
+        ok: true,
+        ...cached,
+        cached: true,
+        stale: true,
+        warning: errorResponse
+      };
+    }
+    return errorResponse;
+  }
 }
 
 async function parseApiResponse(response, phase) {
@@ -729,6 +1116,8 @@ async function handleMessage(message, sender) {
       return ingestSteamDbPopularGames(message, sender);
     case "steam-fast-check-steamdb-source-status":
       return updateSteamDbSourceStatus(message, sender);
+    case "steam-fast-check-gamepass-games":
+      return requestGamePassGames(message.refresh);
     case "steam-fast-check-gemini-translate":
       return translate(message);
     case "steam-fast-check-gemini-list-models":

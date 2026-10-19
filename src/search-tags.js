@@ -7,6 +7,7 @@
   const OPEN_IN_NEW_TAB_STORAGE_KEY = "steamFastCheckOpenSearchResultsInNewTab";
   const MAX_VISIBLE_TAGS = 3;
   const POPULAR_TAG_NAME = "TOP100";
+  const GAMEPASS_TAG_NAME = "GAME PASS";
   const POPULAR_TAG_EVENT = "steam-fast-check-popular-tags-changed";
   const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
@@ -106,10 +107,15 @@
     const popularRank = /^\d+$/.test(popularRankValue)
       ? Number(popularRankValue)
       : null;
+    const gamePassValue = row.dataset?.steamFastCheckGamePass === "true"
+      ? "true"
+      : "";
+    const hasGamePass = gamePassValue === "true";
     if (
       platformArea.dataset.steamFastCheckTagsFor === rawTagIds &&
       platformArea.dataset.steamFastCheckTagsRevision === String(rulesRevision) &&
-      platformArea.dataset.steamFastCheckPopularRank === popularRankValue
+      platformArea.dataset.steamFastCheckPopularRank === popularRankValue &&
+      (platformArea.dataset.steamFastCheckGamePass || "") === gamePassValue
     ) {
       return;
     }
@@ -121,9 +127,11 @@
     const allTagNames = parseTagIds(rawTagIds)
       .map((tagId) => tagNames.get(tagId))
       .filter(Boolean);
-    const availableTagNames = popularRank
-      ? [POPULAR_TAG_NAME, ...allTagNames]
-      : allTagNames;
+    const specialTagNames = [
+      popularRank ? POPULAR_TAG_NAME : null,
+      hasGamePass ? GAMEPASS_TAG_NAME : null
+    ].filter(Boolean);
+    const availableTagNames = [...specialTagNames, ...allTagNames];
     const highlightedTagNames = [...highlightRules.keys()]
       .map((highlightedName) =>
         availableTagNames.find(
@@ -137,40 +145,62 @@
         !highlightRules.has(normalizeTagName(tagName))
       )
     ];
-    if (popularRank && !highlightRules.has(normalizeTagName(POPULAR_TAG_NAME))) {
+    const unconfiguredSpecialTags = specialTagNames.filter(
+      (tagName) => !highlightRules.has(normalizeTagName(tagName))
+    );
+    if (unconfiguredSpecialTags.length > 0) {
       prioritizedTagNames = [
-        POPULAR_TAG_NAME,
-        ...prioritizedTagNames.filter((tagName) => tagName !== POPULAR_TAG_NAME)
+        ...unconfiguredSpecialTags,
+        ...prioritizedTagNames.filter(
+          (tagName) => !unconfiguredSpecialTags.includes(tagName)
+        )
       ];
     }
 
     const visibleTagNames = prioritizedTagNames.slice(0, MAX_VISIBLE_TAGS);
-    if (popularRank && !visibleTagNames.includes(POPULAR_TAG_NAME)) {
-      const popularIndex = Math.min(
-        prioritizedTagNames.indexOf(POPULAR_TAG_NAME),
+    for (const specialTagName of specialTagNames) {
+      if (visibleTagNames.includes(specialTagName)) {
+        continue;
+      }
+      const specialIndex = Math.min(
+        prioritizedTagNames.indexOf(specialTagName),
         MAX_VISIBLE_TAGS - 1
       );
-      visibleTagNames.pop();
-      visibleTagNames.splice(popularIndex, 0, POPULAR_TAG_NAME);
+      let removeIndex = visibleTagNames.length - 1;
+      while (
+        removeIndex >= 0 &&
+        specialTagNames.includes(visibleTagNames[removeIndex])
+      ) {
+        removeIndex -= 1;
+      }
+      if (removeIndex >= 0) {
+        visibleTagNames.splice(removeIndex, 1);
+        visibleTagNames.splice(specialIndex, 0, specialTagName);
+      }
     }
 
     const fragment = document.createDocumentFragment();
     for (const tagName of visibleTagNames) {
       const tag = document.createElement("span");
       const isPopularTag = tagName === POPULAR_TAG_NAME;
+      const isGamePassTag = tagName === GAMEPASS_TAG_NAME;
       tag.className = isPopularTag
         ? "steam_fast_check_tag steam_fast_check_popular_tag"
-        : "steam_fast_check_tag";
+        : isGamePassTag
+          ? "steam_fast_check_tag steam_fast_check_gamepass_tag"
+          : "steam_fast_check_tag";
       tag.textContent = tagName;
       if (isPopularTag) {
         tag.title = `SteamDBフォロワー上位100件 第${popularRank}位`;
+      } else if (isGamePassTag) {
+        tag.title = "Xbox Game Pass 対応";
       }
       applyTagHighlight(tag, tagName);
       fragment.append(tag);
     }
 
     const visibleUserTagCount = visibleTagNames.filter(
-      (tagName) => tagName !== POPULAR_TAG_NAME
+      (tagName) => !specialTagNames.includes(tagName)
     ).length;
     if (allTagNames.length > visibleUserTagCount) {
       const remaining = document.createElement("span");
@@ -184,9 +214,13 @@
     platformArea.dataset.steamFastCheckTagsFor = rawTagIds;
     platformArea.dataset.steamFastCheckTagsRevision = String(rulesRevision);
     platformArea.dataset.steamFastCheckPopularRank = popularRankValue;
+    platformArea.dataset.steamFastCheckGamePass = gamePassValue;
     platformArea.title = [
       popularRank
         ? `TOP100（SteamDBフォロワー第${popularRank}位）`
+        : null,
+      hasGamePass
+        ? "GAME PASS（Xbox Game Pass 対応）"
         : null,
       ...allTagNames
     ].filter(Boolean).join(" / ");

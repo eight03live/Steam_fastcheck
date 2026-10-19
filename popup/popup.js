@@ -7,6 +7,8 @@ const POPULAR_ENABLED_STORAGE_KEY = "steamFastCheckPopularHighlightEnabled";
 const POPULAR_YEAR_STORAGE_KEY = "steamFastCheckPopularHighlightYear";
 const POPULAR_MONTH_STORAGE_KEY = "steamFastCheckPopularHighlightMonth";
 const POPULAR_STATUS_STORAGE_KEY = "steamFastCheckSteamDbPopularStatusV1";
+const GAMEPASS_ENABLED_STORAGE_KEY = "steamFastCheckGamePassHighlightEnabled";
+const GAMEPASS_STATUS_STORAGE_KEY = "steamFastCheckGamePassStatusV1";
 const GEMINI_ENABLED_STORAGE_KEY = "steamFastCheckGeminiTranslationEnabled";
 const GEMINI_MODEL_STORAGE_KEY = "steamFastCheckGeminiModel";
 const GEMINI_SETTINGS_REVISION_STORAGE_KEY = "steamFastCheckGeminiSettingsRevision";
@@ -59,6 +61,14 @@ const savePopularSettingsButton = document.getElementById("save_popular_settings
 const openSteamDbPageButton = document.getElementById("open_steamdb_page");
 const popularSettingsStatusElement = document.getElementById("popular_settings_status");
 const popularStatusElement = document.getElementById("popular_highlight_status");
+const gamePassEnabledInput = document.getElementById("gamepass_highlight_enabled");
+const gamePassSettingsPanel = document.getElementById("gamepass_settings_panel");
+const gamePassSettingsSummaryStatusElement = document.getElementById(
+  "gamepass_settings_summary_status"
+);
+const refreshGamePassListButton = document.getElementById("refresh_gamepass_list");
+const gamePassSettingsStatusElement = document.getElementById("gamepass_settings_status");
+const gamePassStatusElement = document.getElementById("gamepass_highlight_status");
 const geminiEnabledInput = document.getElementById("gemini_translation_enabled");
 const geminiApiKeyInput = document.getElementById("gemini_api_key");
 const geminiModelSelect = document.getElementById("gemini_model");
@@ -74,6 +84,8 @@ let savedPopularEnabled = false;
 let savedPopularYear = DEFAULT_POPULAR_YEAR;
 let savedPopularMonth = DEFAULT_POPULAR_MONTH;
 let popularDataStatus = null;
+let savedGamePassEnabled = true;
+let gamePassDataStatus = null;
 let savedScreenshotInterval = DEFAULT_SCREENSHOT_INTERVAL;
 let pendingScreenshotInterval = null;
 let screenshotIntervalSaving = false;
@@ -246,6 +258,67 @@ function showPopularStatus(status) {
     return;
   }
   popularStatusElement.textContent = `${period}: ${status.count}件取得 / ${timestamp}`;
+}
+
+function showGamePassSettingsStatus(message, isError = false) {
+  gamePassSettingsStatusElement.textContent = message;
+  gamePassSettingsStatusElement.classList.toggle("error", isError);
+}
+
+function updateGamePassSettingsSummary() {
+  let state = "未取得";
+  let stateClass = "";
+
+  if (gamePassDataStatus?.ok === true) {
+    state = `${gamePassDataStatus.count || 0}件取得済み`;
+  } else if (gamePassDataStatus?.ok === null) {
+    state = "取得中";
+    stateClass = "loading";
+  } else if (gamePassDataStatus?.ok === false) {
+    if (gamePassDataStatus.cached) {
+      state = `${gamePassDataStatus.count || 0}件保存済み`;
+    } else {
+      state = "取得失敗";
+      stateClass = "error";
+    }
+  }
+
+  gamePassSettingsSummaryStatusElement.textContent = state;
+  gamePassSettingsSummaryStatusElement.classList.toggle(
+    "loading",
+    stateClass === "loading"
+  );
+  gamePassSettingsSummaryStatusElement.classList.toggle(
+    "error",
+    stateClass === "error"
+  );
+}
+
+function showGamePassStatus(status) {
+  gamePassDataStatus = status || null;
+  updateGamePassSettingsSummary();
+  gamePassStatusElement.classList.toggle("error", status?.ok === false);
+  if (!status || !status.fetchedAt) {
+    gamePassStatusElement.textContent = "まだ一覧を参照していません。";
+    return;
+  }
+
+  const timestamp = new Date(status.fetchedAt).toLocaleString("ja-JP");
+  if (status.ok === null) {
+    const cacheNote = status.cached
+      ? ` 保存済み${status.count}件を表示しながら更新します。`
+      : "";
+    gamePassStatusElement.textContent = `${status.message || "Xbox Game Passの一覧を取得しています…"}${cacheNote}`;
+    return;
+  }
+  if (status.ok === false) {
+    const cacheNote = status.cached
+      ? ` 保存済み${status.count}件を使用します。`
+      : "";
+    gamePassStatusElement.textContent = `${status.message || "取得できませんでした。"}${cacheNote}`;
+    return;
+  }
+  gamePassStatusElement.textContent = `PC対象 ${status.count}件取得 / ${timestamp}`;
 }
 
 function formatBackgroundError(response, fallback) {
@@ -580,6 +653,61 @@ async function updatePopularEnabledImmediately() {
   }
 }
 
+async function updateGamePassEnabledImmediately() {
+  const requestedEnabled = gamePassEnabledInput.checked;
+  gamePassEnabledInput.disabled = true;
+  if (requestedEnabled) {
+    gamePassSettingsPanel.open = true;
+  }
+  try {
+    await chrome.storage.sync.set({
+      [GAMEPASS_ENABLED_STORAGE_KEY]: requestedEnabled
+    });
+    savedGamePassEnabled = requestedEnabled;
+    showGamePassSettingsStatus(requestedEnabled
+      ? "Xbox Game Pass対応の表示をオンにしました。"
+      : "Xbox Game Pass対応の表示をオフにしました。"
+    );
+  } catch (error) {
+    gamePassEnabledInput.checked = savedGamePassEnabled;
+    showGamePassSettingsStatus(
+      error.message || "Xbox Game Pass表示設定を変更できませんでした。",
+      true
+    );
+  } finally {
+    gamePassEnabledInput.disabled = false;
+  }
+}
+
+async function refreshGamePassCatalog() {
+  refreshGamePassListButton.disabled = true;
+  showGamePassSettingsStatus("Xbox Game Pass一覧を更新しています…");
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "steam-fast-check-gamepass-games",
+      refresh: true
+    });
+    if (!response?.ok) {
+      throw new Error(
+        formatBackgroundError(response, "Xbox Game Pass一覧を更新できませんでした。")
+      );
+    }
+    showGamePassSettingsStatus(
+      response.stale
+        ? "通信に失敗したため、保存済み一覧を引き続き使用します。"
+        : `${response.count || 0}件のゲーム一覧を更新しました。`,
+      Boolean(response.stale)
+    );
+  } catch (error) {
+    showGamePassSettingsStatus(
+      error.message || "Xbox Game Pass一覧を更新できませんでした。",
+      true
+    );
+  } finally {
+    refreshGamePassListButton.disabled = false;
+  }
+}
+
 async function saveGeminiSettings() {
   saveGeminiSettingsButton.disabled = true;
   try {
@@ -651,12 +779,14 @@ async function loadSettings() {
         [POPULAR_ENABLED_STORAGE_KEY]: false,
         [POPULAR_YEAR_STORAGE_KEY]: DEFAULT_POPULAR_YEAR,
         [POPULAR_MONTH_STORAGE_KEY]: DEFAULT_POPULAR_MONTH,
+        [GAMEPASS_ENABLED_STORAGE_KEY]: true,
         [GEMINI_ENABLED_STORAGE_KEY]: false,
         [GEMINI_MODEL_STORAGE_KEY]: DEFAULT_GEMINI_MODEL
       }),
       chrome.storage.local.get({
         [GEMINI_API_KEY_STORAGE_KEY]: "",
-        [POPULAR_STATUS_STORAGE_KEY]: null
+        [POPULAR_STATUS_STORAGE_KEY]: null,
+        [GAMEPASS_STATUS_STORAGE_KEY]: null
       })
     ]);
     const rules = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
@@ -671,6 +801,9 @@ async function loadSettings() {
     popularYearInput.value = String(savedPopularYear);
     popularMonthInput.value = String(savedPopularMonth);
     showPopularStatus(localStored[POPULAR_STATUS_STORAGE_KEY]);
+    gamePassEnabledInput.checked = stored[GAMEPASS_ENABLED_STORAGE_KEY] !== false;
+    savedGamePassEnabled = gamePassEnabledInput.checked;
+    showGamePassStatus(localStored[GAMEPASS_STATUS_STORAGE_KEY]);
     geminiEnabledInput.checked = stored[GEMINI_ENABLED_STORAGE_KEY] === true;
     savedGeminiEnabled = geminiEnabledInput.checked;
     geminiEnabledInput.disabled = false;
@@ -696,6 +829,9 @@ async function loadSettings() {
     popularYearInput.value = String(DEFAULT_POPULAR_YEAR);
     popularMonthInput.value = String(DEFAULT_POPULAR_MONTH);
     showPopularStatus(null);
+    gamePassEnabledInput.checked = true;
+    savedGamePassEnabled = true;
+    showGamePassStatus(null);
     geminiEnabledInput.checked = false;
     savedGeminiEnabled = false;
     geminiEnabledInput.disabled = false;
@@ -716,6 +852,8 @@ savePopularSettingsButton.addEventListener("click", () => savePopularSettings())
 popularEnabledInput.addEventListener("change", updatePopularEnabledImmediately);
 popularYearInput.addEventListener("input", () => showPopularSettingsStatus(""));
 popularMonthInput.addEventListener("change", () => showPopularSettingsStatus(""));
+gamePassEnabledInput.addEventListener("change", updateGamePassEnabledImmediately);
+refreshGamePassListButton.addEventListener("click", refreshGamePassCatalog);
 geminiSettingsPanel.addEventListener("toggle", () => {
   const apiKey = geminiApiKeyInput.value.trim();
   if (geminiSettingsPanel.open && apiKey && apiKey !== modelsLoadedApiKey) {
@@ -748,8 +886,14 @@ openSteamDbPageButton.addEventListener("click", async () => {
   }
 });
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && changes[POPULAR_STATUS_STORAGE_KEY]) {
+  if (areaName !== "local") {
+    return;
+  }
+  if (changes[POPULAR_STATUS_STORAGE_KEY]) {
     showPopularStatus(changes[POPULAR_STATUS_STORAGE_KEY].newValue);
+  }
+  if (changes[GAMEPASS_STATUS_STORAGE_KEY]) {
+    showGamePassStatus(changes[GAMEPASS_STATUS_STORAGE_KEY].newValue);
   }
 });
 saveButton.addEventListener("click", saveGeneralSettings);

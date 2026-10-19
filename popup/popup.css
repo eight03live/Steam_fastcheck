@@ -135,11 +135,13 @@ main {
   margin-bottom: 10px;
 }
 
-.popular_toggle_setting {
+.popular_toggle_setting,
+.gamepass_toggle_setting {
   margin-bottom: 10px;
 }
 
-.popular_settings_panel {
+.popular_settings_panel,
+.gamepass_settings_panel {
   margin-bottom: 17px;
 }
 
@@ -164,6 +166,15 @@ main {
   width: 100%;
   margin-top: 0;
   padding: 0 8px;
+}
+
+.gamepass_actions {
+  margin-top: 11px;
+}
+
+.gamepass_actions .compact_button {
+  width: 100%;
+  margin-top: 0;
 }
 
 .translation_settings_panel > summary {

@@ -102,6 +102,33 @@
         </section>
       </details>
 
+      <section class="behavior_setting gamepass_toggle_setting" aria-labelledby="gamepass_setting_title">
+        <div class="setting_copy">
+          <h2 id="gamepass_setting_title">Xbox Game Pass対応を表示</h2>
+          <p>PC対象のGame PassタイトルをGAME PASSタグで示します。</p>
+        </div>
+        <label class="toggle_switch">
+          <input id="gamepass_highlight_enabled" class="toggle_input" type="checkbox" aria-label="Xbox Game Pass対応を表示する">
+          <span class="toggle_control" aria-hidden="true"></span>
+        </label>
+      </section>
+
+      <details id="gamepass_settings_panel" class="translation_settings_panel gamepass_settings_panel">
+        <summary>
+          <span>Xbox Game Pass一覧</span>
+          <span id="gamepass_settings_summary_status" class="settings_summary_status">未取得</span>
+        </summary>
+
+        <section class="translation_setting" aria-label="Xbox Game Pass一覧の状態と更新">
+          <p class="field_help">Microsoft公式カタログからPC対象タイトル（現在配信中＋近日追加予定）を取得し、12時間キャッシュします。</p>
+          <div class="gamepass_actions">
+            <button id="refresh_gamepass_list" class="secondary_button compact_button" type="button">一覧を今すぐ更新</button>
+          </div>
+          <p id="gamepass_settings_status" class="inline_status" role="status" aria-live="polite"></p>
+          <p id="gamepass_highlight_status" class="inline_status" role="status" aria-live="polite"></p>
+        </section>
+      </details>
+
       <section class="behavior_setting gemini_toggle_setting" aria-labelledby="translation_setting_title">
         <div class="setting_copy">
           <h2 id="translation_setting_title">ゲーム説明をGeminiで翻訳</h2>
@@ -142,7 +169,7 @@
       </details>
 
       <h2 class="section_title">タグ強調</h2>
-      <p class="section_description">完全一致するユーザータグを、検索行とホバー詳細の両方で強調します。TOP100を追加すると、専用タグの色と表示順も設定できます。</p>
+      <p class="section_description">完全一致するユーザータグを、検索行とホバー詳細の両方で強調します。TOP100やGAME PASSを追加すると、専用タグの色と表示順も設定できます。</p>
       <div class="column_labels" aria-hidden="true">
         <span>タグ名</span>
         <span>色</span>

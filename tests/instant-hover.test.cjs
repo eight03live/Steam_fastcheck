@@ -47,6 +47,16 @@ const popularHighlightScriptPath = path.join(
   "popular-game-highlights.js"
 );
 const popularHighlightScript = fs.readFileSync(popularHighlightScriptPath, "utf8");
+const gamePassHighlightScriptPath = path.join(
+  __dirname,
+  "..",
+  "src",
+  "gamepass-highlights.js"
+);
+const gamePassHighlightScript = fs.readFileSync(
+  gamePassHighlightScriptPath,
+  "utf8"
+);
 const steamDbSourceScriptPath = path.join(
   __dirname,
   "..",
@@ -639,8 +649,55 @@ test("指定タグを検索行で優先表示し、ホバータグも同じ色�
     initialRow.platformArea.children.map((child) => child.textContent),
     ["家族向け", "RPG", "ビジュアルノベル", "+1"]
   );
+
+  initialRow.dataset.steamFastCheckPopularRank = "2";
+  initialRow.dataset.steamFastCheckGamePass = "true";
+  documentListeners.get("steam-fast-check-popular-tags-changed:undefined")();
+  assert.deepEqual(
+    initialRow.platformArea.children.map((child) => child.textContent),
+    ["TOP100", "GAME PASS", "家族向け", "+3"]
+  );
+  assert.equal(
+    initialRow.platformArea.children[1].className,
+    "steam_fast_check_tag steam_fast_check_gamepass_tag"
+  );
+  assert.equal(
+    initialRow.platformArea.children[1].title,
+    "Xbox Game Pass 対応"
+  );
+  assert.equal(
+    initialRow.platformArea.title,
+    "TOP100（SteamDBフォロワー第2位） / GAME PASS（Xbox Game Pass 対応） / RPG / ビジュアルノベル / 2D / 家族向け"
+  );
+
+  storageChangeListener(
+    {
+      steamFastCheckTagHighlightRules: {
+        newValue: [
+          { tag: "家族向け", color: "#ffd166" },
+          { tag: "2D", color: "#88ccff" },
+          { tag: "RPG", color: "#99dd88" },
+          { tag: "GAME PASS", color: "#22cc66" }
+        ]
+      }
+    },
+    "sync"
+  );
+  assert.deepEqual(
+    initialRow.platformArea.children.map((child) => child.textContent),
+    ["TOP100", "家族向け", "GAME PASS", "+3"]
+  );
+  assert.equal(
+    initialRow.platformArea.children[2].styleValues.get(
+      "--steam-fast-check-tag-highlight-color"
+    ),
+    "#22cc66"
+  );
+
   assert.match(tagCss, /\.steam_fast_check_popular_tag/);
   assert.match(tagCss, /background:\s*#f3c243/);
+  assert.match(tagCss, /\.steam_fast_check_gamepass_tag/);
+  assert.match(tagCss, /background:\s*#107c10/);
 });
 
 test("フレンド人数を4段階の枠クラスへ変換する", async () => {
@@ -759,12 +816,14 @@ test("フレンド人数別の仮色を明るい4色で定義する", () => {
 
 test("拡張アイコンの設定ポップアップから各設定を保存する", () => {
   assert.equal(manifest.name, "Steam Fast Check");
-  assert.equal(manifest.version, "1.2.1");
+  assert.equal(manifest.version, "1.4.0");
   assert.equal(manifest.action.default_title, "Steam Fast Check 設定");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions, [
     "https://generativelanguage.googleapis.com/*",
-    "https://steamdb.info/*"
+    "https://steamdb.info/*",
+    "https://catalog.gamepass.com/*",
+    "https://displaycatalog.mp.microsoft.com/*"
   ]);
   assert.equal(
     manifest.background.service_worker,
@@ -812,7 +871,20 @@ test("拡張アイコンの設定ポップアップから各設定を保存す�
   assert.match(popupHtml, /近日登場チェック用ページ/);
   assert.doesNotMatch(popupHtml, /move_up_button|move_down_button/);
   assert.match(popupHtml, /class="drag_handle" draggable="true"/);
-  assert.match(popupHtml, /TOP100を追加すると、専用タグの色と表示順も設定できます/);
+  assert.match(popupHtml, /id="gamepass_highlight_enabled"/);
+  assert.match(popupHtml, /Xbox Game Pass対応を表示/);
+  assert.match(popupHtml, /id="gamepass_settings_panel"/);
+  assert.match(popupHtml, /id="gamepass_settings_summary_status"/);
+  assert.match(popupHtml, /id="refresh_gamepass_list"/);
+  assert.match(popupScript, /steamFastCheckGamePassHighlightEnabled/);
+  assert.match(popupScript, /updateGamePassSettingsSummary/);
+  assert.match(popupScript, /updateGamePassEnabledImmediately/);
+  assert.match(popupScript, /refreshGamePassList/);
+  assert.match(
+    popupScript,
+    /gamePassEnabledInput\.addEventListener\("change", updateGamePassEnabledImmediately\)/
+  );
+  assert.match(popupHtml, /TOP100やGAME PASSを追加すると、専用タグの色と表示順も設定できます/);
   assert.match(popupScript, /moveRuleRow/);
   assert.match(popupScript, /insertBefore/);
   assert.match(popupScript, /dragstart/);
@@ -1174,6 +1246,318 @@ test("SteamDB上位100件と一致する検索行へTOP100タグ用の順位を�
     "sync"
   );
   assert.equal(matchingRow.dataset.steamFastCheckPopularRank, undefined);
+});
+
+test("Microsoft公式APIからXbox Game Pass PCタイトル一覧を取得してキャッシュする", async () => {
+  const localValues = {};
+  const syncValues = {};
+  const fetchedUrls = [];
+  let messageListener;
+
+  const chrome = {
+    storage: {
+      local: {
+        async setAccessLevel() {},
+        async get(defaults) {
+          return { ...defaults, ...localValues };
+        },
+        async set(values) {
+          Object.assign(localValues, values);
+        },
+        async remove(key) {
+          delete localValues[key];
+        }
+      },
+      sync: {
+        async get(defaults) {
+          return { ...defaults, ...syncValues };
+        },
+        async set(values) {
+          Object.assign(syncValues, values);
+        }
+      }
+    },
+    tabs: {
+      onRemoved: {
+        addListener() {}
+      }
+    },
+    runtime: {
+      onMessage: {
+        addListener(listener) {
+          messageListener = listener;
+        }
+      }
+    }
+  };
+
+  vm.runInNewContext(geminiBackgroundScript, {
+    Date,
+    Set,
+    URL,
+    chrome,
+    encodeURIComponent,
+    fetch: async (url) => {
+      fetchedUrls.push(String(url));
+      if (String(url).startsWith("https://catalog.gamepass.com/sigls/v2")) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return [
+              { siglId: "609d944c-d395-4c0a-9ea4-e9f39b52c1ad" },
+              { id: "9NP1P1WFS0LB" },
+              { id: "9PPBNCXP0096" }
+            ];
+          }
+        };
+      }
+      if (String(url).startsWith("https://displaycatalog.mp.microsoft.com/v7.0/products")) {
+        const isJa = String(url).includes("languages=ja-jp");
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              Products: [
+                {
+                  ProductId: "9NP1P1WFS0LB",
+                  MarketProperties: [
+                    { OriginalReleaseDate: "9998-12-30T00:00:00.0000000Z" }
+                  ],
+                  LocalizedProperties: [
+                    {
+                      ProductTitle: isJa
+                        ? "『Dune: Awakening デューン：アウェイクニング』本編"
+                        : "Dune: Awakening",
+                      ShortTitle: "Dune"
+                    }
+                  ]
+                },
+                {
+                  ProductId: "9PPBNCXP0096",
+                  MarketProperties: [
+                    { OriginalReleaseDate: "2020-08-27T16:00:00.0000000Z" }
+                  ],
+                  LocalizedProperties: [
+                    {
+                      ProductTitle: "Resonance: A Plague Tale Legacy",
+                      ShortTitle: "Resonance"
+                    }
+                  ]
+                }
+              ]
+            };
+          }
+        };
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+
+  const sendMessage = (message) =>
+    new Promise((resolve) => {
+      assert.equal(messageListener(message, {}, resolve), true);
+    });
+
+  const firstResult = await sendMessage({
+    type: "steam-fast-check-gamepass-games",
+    refresh: false
+  });
+  assert.equal(firstResult.ok, true);
+  assert.equal(firstResult.cached, false);
+  assert.ok(firstResult.titles.includes("Dune: Awakening"));
+  assert.ok(
+    firstResult.titles.includes("『Dune: Awakening デューン：アウェイクニング』本編")
+  );
+  assert.ok(firstResult.titles.includes("Resonance: A Plague Tale Legacy"));
+  assert.equal(
+    firstResult.titles.includes("Resonance"),
+    false,
+    "ShortTitleの省略名はタイトル一覧へ含めない"
+  );
+  assert.ok(firstResult.upcomingTitles.includes("Dune: Awakening"));
+  assert.equal(
+    firstResult.upcomingTitles.includes("Resonance: A Plague Tale Legacy"),
+    false,
+    "既発売タイトルは発売予定リストへ含めない"
+  );
+  assert.equal(localValues.steamFastCheckGamePassStatusV1.ok, true);
+  assert.equal(typeof syncValues.steamFastCheckGamePassDataRevision, "number");
+  const initialFetchCount = fetchedUrls.length;
+  assert.ok(initialFetchCount >= 6);
+
+  const secondResult = await sendMessage({
+    type: "steam-fast-check-gamepass-games",
+    refresh: false
+  });
+  assert.equal(secondResult.ok, true);
+  assert.equal(secondResult.cached, true);
+  assert.equal(fetchedUrls.length, initialFetchCount);
+});
+
+test("Xbox Game Pass対象タイトルと一致する検索行にフラグを付ける", async () => {
+  const gamePassContentScript = manifest.content_scripts.find((entry) =>
+    entry.js.includes("src/gamepass-highlights.js")
+  );
+  assert.ok(gamePassContentScript);
+
+  class FakeRow {
+    constructor(title, releasedText = "") {
+      this.nodeType = 1;
+      this.dataset = {};
+      this.titleNode = { textContent: title };
+      this.releasedNode = releasedText ? { textContent: releasedText } : null;
+    }
+
+    matches(selector) {
+      return selector === "a.search_result_row";
+    }
+
+    querySelector(selector) {
+      if (selector === ".title") {
+        return this.titleNode;
+      }
+      if (selector === ".search_released") {
+        return this.releasedNode;
+      }
+      return null;
+    }
+
+    querySelectorAll() {
+      return [];
+    }
+  }
+
+  const duneRow = new FakeRow("Dune: Awakening", "近日登場");
+  const beyondRow = new FakeRow(
+    "Beyond These Stars ビヨンド・ジーズ・スターズ",
+    "2024年10月16日"
+  );
+  const crashRow = new FakeRow("Crash Bandicoot™ 4: It’s About Time", "2022年10月18日");
+  const nineKingsRow = new FakeRow("9 Kings", "2025年5月23日");
+  const SubnauticaRow = new FakeRow("Subnautica 2", "近日登場");
+  const comingSoonSameNameAsOldGamePassRow = new FakeRow("Legacy Legend", "近日登場");
+  const releasedOldGamePassRow = new FakeRow("Legacy Legend", "2021年4月1日");
+  const otherRow = new FakeRow("Unrelated Indie Game", "2024年1月1日");
+  const rows = [
+    duneRow,
+    beyondRow,
+    crashRow,
+    nineKingsRow,
+    SubnauticaRow,
+    comingSoonSameNameAsOldGamePassRow,
+    releasedOldGamePassRow,
+    otherRow
+  ];
+
+  let mutationCallback;
+  let storageChangeListener;
+  let requestCount = 0;
+  const dispatchedEvents = [];
+
+  class MutationObserver {
+    constructor(callback) {
+      mutationCallback = callback;
+    }
+
+    observe() {}
+  }
+
+  const document = {
+    getElementById(id) {
+      return id === "search_results" ? {} : null;
+    },
+    querySelectorAll(selector) {
+      return selector === "a.search_result_row" ? rows : [];
+    },
+    dispatchEvent(event) {
+      dispatchedEvents.push(event.type);
+    }
+  };
+
+  const chrome = {
+    runtime: {
+      async sendMessage(message) {
+        requestCount += 1;
+        assert.equal(message.type, "steam-fast-check-gamepass-games");
+        return {
+          ok: true,
+          titles: [
+            "『Dune: Awakening デューン：アウェイクニング』本編",
+            "Beyond These Stars ビヨンド・ジーズ・スターズ",
+            "Crash Bandicoot™ 4: It’s About Time (PC)",
+            "9 Kings (Game Preview)",
+            "Subnautica 2 (Game Preview) - Windows",
+            "Legacy Legend"
+          ],
+          upcomingTitles: [
+            "『Dune: Awakening デューン：アウェイクニング』本編",
+            "Subnautica 2 (Game Preview) - Windows"
+          ]
+        };
+      }
+    },
+    storage: {
+      sync: {
+        async get(defaults) {
+          return {
+            ...defaults,
+            steamFastCheckGamePassHighlightEnabled: true
+          };
+        }
+      },
+      onChanged: {
+        addListener(listener) {
+          storageChangeListener = listener;
+        }
+      }
+    }
+  };
+  const window = {};
+  class CustomEvent {
+    constructor(type) {
+      this.type = type;
+    }
+  }
+
+  vm.runInNewContext(gamePassHighlightScript, {
+    CustomEvent,
+    Date,
+    MutationObserver,
+    Set,
+    chrome,
+    document,
+    window
+  });
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal(requestCount, 1);
+  assert.equal(duneRow.dataset.steamFastCheckGamePass, "true");
+  assert.equal(beyondRow.dataset.steamFastCheckGamePass, "true");
+  assert.equal(crashRow.dataset.steamFastCheckGamePass, "true");
+  assert.equal(nineKingsRow.dataset.steamFastCheckGamePass, "true");
+  assert.equal(SubnauticaRow.dataset.steamFastCheckGamePass, "true");
+  assert.equal(
+    comingSoonSameNameAsOldGamePassRow.dataset.steamFastCheckGamePass,
+    undefined,
+    "Steamで近日登場の行は、Game Passで既発売の同名タイトルと照合しない"
+  );
+  assert.equal(releasedOldGamePassRow.dataset.steamFastCheckGamePass, "true");
+  assert.equal(otherRow.dataset.steamFastCheckGamePass, undefined);
+  assert.ok(dispatchedEvents.includes("steam-fast-check-popular-tags-changed"));
+
+  const appendedRow = new FakeRow("9 Kings", "2025年5月23日");
+  mutationCallback([{ addedNodes: [appendedRow] }]);
+  assert.equal(appendedRow.dataset.steamFastCheckGamePass, "true");
+
+  storageChangeListener(
+    { steamFastCheckGamePassHighlightEnabled: { newValue: false } },
+    "sync"
+  );
+  assert.equal(duneRow.dataset.steamFastCheckGamePass, undefined);
 });
 
 test("Gemini APIのモデル一覧を絞り込み、翻訳結果をキャッシュする", async () => {

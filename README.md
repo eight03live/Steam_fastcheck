@@ -94,6 +94,18 @@ Steam検索ページを開くと、対象年月で絞り込んだSteamDBペー�
 
 見た目は [src/search-tags.css](src/search-tags.css) の `.steam_fast_check_popular_tag` で変更できます。
 
+### Xbox Game Pass対応ゲームの強調
+
+Xbox Game Pass Ultimate（PC対象タイトル：現在配信中＋近日追加予定・EA Play含む）で遊べるゲームへ、緑色の `GAME PASS` タグを表示します。
+
+Microsoft公式カタログAPIから日本語・英語のタイトル一覧をバックグラウンドで自動取得（12時間キャッシュ）し、エディション表記や記号・括弧の揺れを正規化してSteam検索結果のタイトルと照合します。
+
+設定の「Xbox Game Pass対応を表示」は初期状態でオンになっており、スイッチを切り替えた時点で保存されます。開閉メニュー内の「一覧を今すぐ更新」から最新の一覧を手動で再取得することもできます。
+
+`TOP100` と同様に、タグ強調設定へ `GAME PASS` と入力すると、色と表示順を自由に変更できます。4番目以降へ並べても `GAME PASS` は3つの表示枠内に残ります。未設定時は緑色で優先表示されます。
+
+見た目は [src/search-tags.css](src/search-tags.css) の `.steam_fast_check_gamepass_tag` で変更できます。
+
 ### 新しいタブでゲームページを開く
 
 検索結果を通常クリックすると、元のリスト位置を保ったままゲームページを新しいタブで開きます。設定の「ゲームを新しいタブで開く」をオフにして保存すると、Steam標準どおり現在のタブで開きます。初期値はオンです。
@@ -122,9 +134,10 @@ APIキーはChrome同期を使わず、この端末の拡張機能用ローカ�
 - 検索支援: `store.steampowered.com/search/`
 - Gemini翻訳: `store.steampowered.com/app/`
 - 人気ゲームの照合: `steamdb.info`
+- Xbox Game Passの照合: `catalog.gamepass.com`, `displaycatalog.mp.microsoft.com`
 - Gemini API: `generativelanguage.googleapis.com`
 
-人気ゲームの照合にはSteamDB、説明文の翻訳にはGoogle Gemini APIへの通信権限を使用します。
+人気ゲームの照合にはSteamDB、Xbox Game Passの照合にはMicrosoft公式カタログAPI、説明文の翻訳にはGoogle Gemini APIへの通信権限を使用します。
 
 ## テスト
 
